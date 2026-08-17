@@ -1,0 +1,3 @@
+029d5273a18c3b9b15a85177a9301d999e9856340a3e87286016956c439f53a8  database/SHFE_notice_event_database_v2.1.sqlite3
+230e03d31e08a8af2aab4fef3587abb8eb4b01421ff9876fd6d542a505f71b2a  database/SHFE_notice_query_v2.1.xlsx
+1d6873bfab736351f159578609e8225d73322c653f5b0f0a2a1111c149eae200  docs/SHFE????????????????_v2.1.docx

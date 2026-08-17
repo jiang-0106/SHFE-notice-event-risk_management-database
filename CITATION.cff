@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this database, please cite this repository and record the version and access date."
+title: "SHFE Notice Event and Risk-Parameter Database"
+type: dataset
+version: "2.1.0"
+date-released: 2026-08-17
+authors:
+  - alias: "Maverick-666"
+repository-code: "https://github.com/Maverick-666/SHFE-notice-event-risk_management-database"
+url: "https://github.com/Maverick-666/SHFE-notice-event-risk_management-database"
+keywords:
+  - SHFE
+  - futures
+  - risk management
+  - price limit
+  - margin
+  - event study
+license: MIT

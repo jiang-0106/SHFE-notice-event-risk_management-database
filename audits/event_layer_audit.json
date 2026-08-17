@@ -1,0 +1,15 @@
+{
+  "generated_at": "2026-08-17T10:24:44+08:00",
+  "integrity": "ok",
+  "review_priority": {
+    "P0": 372,
+    "P1": 580,
+    "P2": 748,
+    "P3": 3263
+  },
+  "event_candidates": 6473,
+  "five_product_p0": 306,
+  "manual_overrides": 0,
+  "research_ready_events": 0,
+  "note": "参数事件均为自动候选；生效日期、前后值和扩板触发关系必须人工或跨表确认。"
+}

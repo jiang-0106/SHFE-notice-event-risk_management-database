@@ -179,3 +179,34 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# SHFE raw archive and local-only assets
+attachments/
+details/
+lists/
+logs/
+versions/
+99_历史备份/
+*.html
+*.htm
+*.dat
+*.pdf
+*.zip
+*.7z
+*.rar
+
+# SQLite transient files
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal
+
+# Generated query outputs and temporary review files
+query_results/
+exports/
+tmp/
+temp/
+*.inspect.ndjson
+*.png
+
+# Keep the curated versioned database committed
+!database/SHFE_notice_event_database_v2.1.sqlite3

@@ -1,0 +1,22 @@
+{
+  "generated_at": "2026-08-17T09:17:27+08:00",
+  "integrity": "ok",
+  "notices": 4963,
+  "review_queue": 3894,
+  "products": 25,
+  "parameters": 13,
+  "reasons": 9,
+  "missing_local_paths": 0,
+  "database_sha256": "b76a006ff515c1575c920581fe493f30a9a7f718afd4c489b7c14406c8916bf5",
+  "reason_distribution": {
+    "00": 3263,
+    "07": 513,
+    "08": 631,
+    "05": 92,
+    "06": 85,
+    "01": 187,
+    "04": 97,
+    "03": 25,
+    "02": 70
+  }
+}
