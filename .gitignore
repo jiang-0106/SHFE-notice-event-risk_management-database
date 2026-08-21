@@ -210,3 +210,24 @@ temp/
 
 # Keep the curated versioned database committed
 !database/SHFE_notice_event_database_v2.1.sqlite3
+
+# SHFE v2.2 local recovery assets
+正文补全/
+正文资源全库/
+raw/
+local_work/
+*.gif
+*.jpg
+*.jpeg
+*.doc
+*.docx
+
+# SQLite working and transient files
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal
+*.sqlite3.tmp
+
+# Keep curated published databases
+!database/SHFE_notice_event_database_v2.1.sqlite3
+!database/SHFE_notice_event_database_v2.2.sqlite3

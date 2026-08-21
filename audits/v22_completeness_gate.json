@@ -1,0 +1,86 @@
+{
+  "generated_at": "2026-08-20T15:52:42+08:00",
+  "mode": "quick",
+  "status": "PASS_WITH_DOCUMENTED_GAPS",
+  "raw_archive": {
+    "integrity": "ok",
+    "catalog_unique_urls": 4963,
+    "database_notice_urls": 4963,
+    "notices_ok": 4963,
+    "notices_failed": 0,
+    "attachments_ok": 3392,
+    "attachments_failed": 3,
+    "local_files_checked": 8355
+  },
+  "tagged_database": {
+    "integrity": "ok",
+    "notices": 4963,
+    "events": 6473,
+    "empty_bodies": 40,
+    "research_ready_events": 0,
+    "body_recovery_records": 94,
+    "body_recoveries_applied": 53,
+    "body_resource_coverage": {
+      "embedded_data_uri": 3,
+      "invalid_source_reference": 2,
+      "tracked": 1,
+      "unresolved": 34,
+      "v22_recovered": 1657
+    },
+    "body_text_provenance": {
+      "official_parallel_monthly_dataset": 1,
+      "windows_ocr_zh_hans": 6
+    },
+    "classified_empty_bodies": 40,
+    "body_gap_classification": {
+      "archived_legacy_doc_unparsed": 1,
+      "obsolete_external_redirect_non_parameter": 12,
+      "official_pre_boundary_gap": 27
+    }
+  },
+  "issues": [],
+  "warnings": [
+    {
+      "check": "documented_source_failures",
+      "count": 3,
+      "samples": [
+        {
+          "kind": "attachment",
+          "url": "https://www.shfe.com.cn/publicnotice/notice/202111/P020240320700298468330.doc",
+          "http_status": 0,
+          "error": "; HTTPError: HTTP Error 404: Not Found"
+        },
+        {
+          "kind": "attachment",
+          "url": "http://210.13.86.171/SYSC.pdf",
+          "http_status": 0,
+          "error": "; URLError: <urlopen error [WinError 10060] 由于连接方在一段时间后没有正确答复或连接的主机没有反应，连接尝试失败。>"
+        },
+        {
+          "kind": "attachment",
+          "url": "http://www.cfachina.org/workdoc/jsbmb.doc",
+          "http_status": 0,
+          "error": "; HTTPError: HTTP Error 404: Not Found"
+        }
+      ]
+    },
+    {
+      "check": "remaining_empty_bodies",
+      "count": 40,
+      "classified": 40
+    },
+    {
+      "check": "research_ready_events",
+      "count": 0,
+      "note": "Manual validation not yet completed"
+    },
+    {
+      "check": "unresolved_body_resources",
+      "count": 34
+    },
+    {
+      "check": "invalid_source_body_references",
+      "count": 2
+    }
+  ]
+}

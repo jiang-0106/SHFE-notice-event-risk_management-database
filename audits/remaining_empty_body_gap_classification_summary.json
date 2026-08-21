@@ -1,0 +1,17 @@
+{
+  "generated_at": "2026-08-20T15:52:33+08:00",
+  "database": "E:\\AAAAAAAAAAAAAAAAA\\SW\\SHFE\\SHFE 公告数据库\\06_公告标签与参数事件数据库_v2.2_工作版_20260820\\数据库与代码\\SHFE多维公告标签数据库_v2.2_工作版.sqlite3",
+  "database_sha256": "6baba174f458a37bad892a0ab0ea91a0d2dac0f5a15600f2351f4ab0472f0fea",
+  "integrity": "ok",
+  "remaining_empty_bodies": 40,
+  "gap_class_counts": {
+    "archived_legacy_doc_unparsed": 1,
+    "obsolete_external_redirect_non_parameter": 12,
+    "official_pre_boundary_gap": 27
+  },
+  "research_relevance_counts": {
+    "high": 27,
+    "low": 13
+  },
+  "interpretation": "空正文均已逐条分类；高相关缺口不得用于参数值估计，低相关缺口不影响参数事件样本构建。"
+}

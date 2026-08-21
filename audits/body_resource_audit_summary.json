@@ -1,0 +1,20 @@
+{
+  "generated_at": "2026-08-20T15:31:24+08:00",
+  "notices_scanned": 4963,
+  "body_resources": 1697,
+  "resource_type_counts": {
+    "body_image": 1609,
+    "javascript_redirect": 88
+  },
+  "coverage_counts": {
+    "v22_recovered": 1657,
+    "invalid_source_reference": 2,
+    "unresolved": 34,
+    "tracked": 1,
+    "embedded_data_uri": 3
+  },
+  "unresolved": 34,
+  "parse_failures": 0,
+  "parse_failure_samples": [],
+  "catalog": "E:\\AAAAAAAAAAAAAAAAA\\SW\\SHFE\\SCI论文_SHFE公告事件数据库\\01_数据审计\\正文资源全库审计.csv"
+}
