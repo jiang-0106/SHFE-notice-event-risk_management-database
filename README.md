@@ -1,4 +1,4 @@
-# SHFE Notice Event & Risk-Parameter Database
+﻿# SHFE Notice Event & Risk-Parameter Database
 
 上海期货交易所公告标签与风险参数事件数据库。项目基于上海期货交易所公开公告，构建可按“调整原因、调整参数、时间、品种/合约”组合查询的SQLite数据库，并提供Excel入口、Python查询工具、参数事件候选和人工复核机制。
 
@@ -6,7 +6,7 @@
 
 ## Project snapshot
 
-- Coverage: `2000-10-08` to `2026-08-11`
+- Coverage: `2000-10-08` to `2026-08-10`
 - Notices indexed: `4,963`
 - Automatically generated parameter-event candidates: `6,473`
 - Products identified: `25`
@@ -21,7 +21,7 @@ The database is not limited to the five priority products. Other SHFE/INE produc
 
 ```text
 database/
-  SHFE_notice_event_database_v2.1.sqlite3
+  SHFE_notice_event_database_v2.2.sqlite3
   SHFE_notice_query_v2.1.xlsx
   five_products_P0_review_queue.csv
 docs/
@@ -41,12 +41,12 @@ examples/
 audits/
 ```
 
-The original HTML pages, attachments and large archive packages are intentionally excluded from Git history. Versioned full-data packages should be distributed through [GitHub Releases](https://github.com/Maverick-666/SHFE-notice-event-risk_management-database/releases).
+The original HTML pages, attachments and large archive packages are intentionally excluded from Git history. Versioned full-data packages should be distributed through [GitHub Releases](https://github.com/jiang-0106/SHFE-notice-event-risk_management-database/releases).
 
 ## Quick start with DB Browser for SQLite
 
 1. Install [DB Browser for SQLite](https://sqlitebrowser.org/).
-2. Open `database/SHFE_notice_event_database_v2.1.sqlite3`.
+2. Open `database/SHFE_notice_event_database_v2.2.sqlite3`.
 3. Select **Browse Data**.
 4. Choose `v_notice_query` for notice-level search, or `parameter_events` for event candidates.
 5. Filter `product_codes`, `parameter_codes`, `primary_reason_code` or date fields.
@@ -91,7 +91,7 @@ The query scripts use only the Python standard library.
 
 ```powershell
 python scripts/query_shfe_notices.py `
-  --db database/SHFE_notice_event_database_v2.1.sqlite3 `
+  --db database/SHFE_notice_event_database_v2.2.sqlite3 `
   --product FU --parameter price_limit `
   --from-date 2020-01-01 --to-date 2026-12-31 `
   --out fuel_oil_notices.csv
@@ -99,7 +99,7 @@ python scripts/query_shfe_notices.py `
 
 ```powershell
 python scripts/query_shfe_parameter_events.py `
-  --db database/SHFE_notice_event_database_v2.1.sqlite3 `
+  --db database/SHFE_notice_event_database_v2.2.sqlite3 `
   --product FU --parameter price_limit `
   --out fuel_oil_events.csv
 ```
@@ -130,3 +130,30 @@ If you use this project, please cite the repository and record the database vers
 ## Disclaimer
 
 This project is for academic and technical research only. It is not an official SHFE database, and no warranty is provided regarding completeness, classification accuracy or fitness for trading and investment decisions.
+
+
+## Version 2.2 completeness update
+
+Version 2.2 adds notice-body recovery, source provenance, body-resource archiving, and reproducible completeness checks.
+
+- Notices: `4,963`
+- Coverage: `2000-10-08` to `2026-08-10`
+- Parameter-event candidates: `6,473`
+- Research-ready events: `0`
+- Remaining empty notice bodies: `40`
+- Empty bodies individually classified: `40`
+- Early official-boundary parameter gaps: `27`
+- Body-resource coverage: `97.88%`
+- SQLite integrity check: `ok`
+- Completeness gate: `PASS_WITH_DOCUMENTED_GAPS`
+
+The 27 research-relevant empty-body records are monthly settlement-parameter notices from 2003-05 through 2005-08. They precede the confirmed starting boundary of the parallel official monthly structured dataset. Parameter-value analyses should therefore use 2005-09 as the recommended starting boundary unless independent primary-source validation is completed.
+
+All 6,473 parameter events remain automatically generated candidates. The `v_event_research_ready` view remains empty until event-level manual validation is completed.
+
+See:
+
+- `audits/v22_completeness_gate.json`
+- `audits/v22_completeness_gate_full_hash.json`
+- `audits/remaining_empty_body_gap_classification.csv`
+- `audits/v2.2_body_gap_classification.md`
