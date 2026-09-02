@@ -39,9 +39,23 @@ data_dictionary/
 examples/
   example_queries.sql
 audits/
+research_outputs/
+  2026-09-02_evidence_audit/
 ```
 
 The original HTML pages, attachments and large archive packages are intentionally excluded from Git history. Versioned full-data packages should be distributed through [GitHub Releases](https://github.com/jiang-0106/SHFE-notice-event-risk_management-database/releases).
+
+## Research evidence audit (2026-09-02)
+
+The folder [`research_outputs/2026-09-02_evidence_audit`](research_outputs/2026-09-02_evidence_audit) adds a transparent research-reporting layer for the EC/SN notice-event study. It contains:
+
+- a 25-item Word-to-CSV claim map;
+- a bilingual audit of 30 tested factors, retaining both significant and non-significant results;
+- 59 bilingual event-to-policy records with specific event names, dates, background and parameter adjustments;
+- 37 bilingual policy-to-event records with pre-policy anomalies and candidate real-world events;
+- a revised mentor-facing report and a consolidated Excel workbook.
+
+These files distinguish descriptive statistics, event studies, dynamic regressions, robust inference and prediction. Associations and temporal ordering are not presented as causal effects. The database release remains **v2.2.0**; this research-output update does not replace or delete v2.1/v2.2 history.
 
 ## Quick start with DB Browser for SQLite
 

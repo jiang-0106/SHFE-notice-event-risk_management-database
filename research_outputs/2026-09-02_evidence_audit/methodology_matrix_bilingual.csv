@@ -1,0 +1,6 @@
+﻿method_en,方法_cn,question_en,问题_cn,implementation_en,实施_cn,source_files,interpretation_limit_cn
+Descriptive statistics,描述性统计,What is in the sample and how often do events/anomalies occur?,样本包含什么、事件与异常出现频率如何？,"Counts, shares, date coverage and taxonomy",数量、占比、日期覆盖与分类,Table1/2/3/6; event and policy source tables,描述事实，不进行因果推断
+Event study,事件研究,How do market outcomes change before and after an event?,事件前后市场指标如何变化？,Pre10 versus post5/10/20 means; direction-aligned returns,前10日与后5/10/20日均值；方向一致收益,event_window_summary; event_window_mean_tests; directional_return_tests,事件重叠与非随机时点限制解释
+Dynamic regression,动态回归,When does the response start and is there a pre-trend?,反应何时开始，政策前是否已有趋势？,Relative-day indicators with fixed effects and clustered errors,相对日虚拟变量、固定效应与聚类标准误,dynamic_event_regression; notice_dynamic_regression,前趋势意味着不能直接解释为净政策效应
+Robust inference,稳健推断,"Does the result survive dependence, few clusters and multiple testing?",结果能否经受相关性、有限簇和多重检验？,"Cluster robust SE, exact/Monte Carlo wild bootstrap, placebo, BH q-values",聚类稳健标准误、wild bootstrap、安慰剂、BH q值,Table7; placebo files; factor_significance_audit,同时报告未显著结果和所有校正范围
+Prediction,预测分析,Does the model work on held-out groups?,模型在留出样本上是否有效？,"Grouped out-of-fold AUC, Brier, bootstrap CI and permutation p",分组样本外AUC、Brier、bootstrap区间与置换p值,Table5; OOF probabilities; prediction samples,当前正向预测未建立，反向仅提示性
