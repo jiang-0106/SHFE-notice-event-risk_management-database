@@ -1,0 +1,38 @@
+{
+  "version": "v0.15",
+  "built_at": "2026-09-15T09:56:51+08:00",
+  "source_database": "local full v0.14 database (not distributed in Git history)",
+  "source_sha256_before": "a8a4ba1cdab8a3c3263825100ca9f6cf2bf5b8c945d688b08d4aeb503bf98982",
+  "source_sha256_after": "a8a4ba1cdab8a3c3263825100ca9f6cf2bf5b8c945d688b08d4aeb503bf98982",
+  "source_unchanged": true,
+  "output_database": "local full v0.15 database (not distributed in Git history)",
+  "output_sha256": "144ab85596c10e4a51e1a72cc49c2d94b19a755765b09becb85499b8c09b378b",
+  "metrics": {
+    "contract_change_rows": 152730,
+    "cluster_rows": 24636,
+    "cluster_member_rows": 152730,
+    "verified_alignment_rows": 30,
+    "verified_alignment_detail_rows": 504,
+    "alignment_level_status": {
+      "all_values_equal_notice_level": 17,
+      "notice_floor_satisfied_with_higher_values_present": 13
+    },
+    "alignment_change_status": {
+      "all_fields_are_initial_listing_observations": 6,
+      "all_fields_changed_on_observation_date": 13,
+      "no_change_point_level_already_present": 2,
+      "partial_change_with_preexisting_values": 9
+    },
+    "below_notice_rows": 0,
+    "missing_observation_rows": 0,
+    "effective_date_below_notice_fields": 290,
+    "ao_bu_cluster_rows": 1795
+  },
+  "csv_row_counts": {
+    "verified_notice_parameter_alignment_v15.csv": 30,
+    "verified_notice_parameter_contract_detail_v15.csv": 504,
+    "official_product_parameter_change_clusters_v15.csv": 24636,
+    "ao_bu_parameter_change_clusters_v15.csv": 1795
+  },
+  "quick_check": "ok"
+}

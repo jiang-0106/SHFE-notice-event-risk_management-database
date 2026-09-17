@@ -227,6 +227,8 @@ local_work/
 *.sqlite3-shm
 *.sqlite3-journal
 *.sqlite3.tmp
+*.sqlite3.building
+*.timing_unadjusted_interim
 
 # Keep curated published databases
 !database/SHFE_notice_event_database_v2.1.sqlite3

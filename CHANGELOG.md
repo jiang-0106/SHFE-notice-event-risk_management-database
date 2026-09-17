@@ -1,5 +1,24 @@
 ﻿# Changelog
 
+## Official parameter-change alignment - 2026-09-15
+
+### Added
+
+- Contract-field changes derived from consecutive available official daily trade-parameter records.
+- Product-date-value change clusters with affected-contract shares and lifecycle context.
+- Bilingual AO/BU notice-parameter and contract-field alignment tables.
+- Separate effective-date and post-close observation-date fields.
+- Reproducible build and validation scripts with environment-variable path overrides.
+
+### Validation and scope
+
+- 30 source-verified AO/BU margin and price-limit parameter records aligned to 504 contract-field observations.
+- Zero below-notice or missing values on selected post-close/listing observation dates.
+- 290 lower pre-close effective-date fields retained as timing evidence.
+- Independent validation: 46/46 checks passed.
+- Full 805 MB v0.15 SQLite database excluded from ordinary Git history; its SHA-256 is documented in the release folder.
+- Results are synchronous/descriptive and do not establish causality or prediction.
+
 ## Research evidence audit - 2026-09-02
 
 ### Added

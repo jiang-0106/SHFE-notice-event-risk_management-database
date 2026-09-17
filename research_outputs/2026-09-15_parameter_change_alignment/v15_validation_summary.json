@@ -1,0 +1,405 @@
+{
+  "version": "v0.15",
+  "database": "local full v0.15 database (not distributed in Git history)",
+  "database_sha256": "144ab85596c10e4a51e1a72cc49c2d94b19a755765b09becb85499b8c09b378b",
+  "database_size_bytes": 805093376,
+  "source_database": "local full v0.14 database (not distributed in Git history)",
+  "source_database_sha256": "a8a4ba1cdab8a3c3263825100ca9f6cf2bf5b8c945d688b08d4aeb503bf98982",
+  "summary": {
+    "checks": 46,
+    "passed": 46,
+    "failed": 0
+  },
+  "csv_audits": {
+    "verified_notice_parameter_alignment_v15.csv": {
+      "has_utf8_bom": true,
+      "column_count": 36,
+      "column_count_even": true,
+      "headers_nonblank": true,
+      "data_row_count": 30,
+      "all_rows_same_width": true
+    },
+    "verified_notice_parameter_contract_detail_v15.csv": {
+      "has_utf8_bom": true,
+      "column_count": 30,
+      "column_count_even": true,
+      "headers_nonblank": true,
+      "data_row_count": 504,
+      "all_rows_same_width": true
+    },
+    "official_product_parameter_change_clusters_v15.csv": {
+      "has_utf8_bom": true,
+      "column_count": 30,
+      "column_count_even": true,
+      "headers_nonblank": true,
+      "data_row_count": 24636,
+      "all_rows_same_width": true
+    },
+    "ao_bu_parameter_change_clusters_v15.csv": {
+      "has_utf8_bom": true,
+      "column_count": 30,
+      "column_count_even": true,
+      "headers_nonblank": true,
+      "data_row_count": 1795,
+      "all_rows_same_width": true
+    }
+  },
+  "tests": [
+    {
+      "check_name": "source_v014_hash",
+      "status": "PASS",
+      "value": "a8a4ba1cdab8a3c3263825100ca9f6cf2bf5b8c945d688b08d4aeb503bf98982",
+      "expected": "a8a4ba1cdab8a3c3263825100ca9f6cf2bf5b8c945d688b08d4aeb503bf98982",
+      "note": "The preserved v0.14 source must remain byte-identical."
+    },
+    {
+      "check_name": "output_differs_from_source",
+      "status": "PASS",
+      "value": "144ab85596c10e4a51e1a72cc49c2d94b19a755765b09becb85499b8c09b378b",
+      "expected": "different from source",
+      "note": "v0.15 adds normalized change and alignment layers."
+    },
+    {
+      "check_name": "sqlite_quick_check",
+      "status": "PASS",
+      "value": "ok",
+      "expected": "ok",
+      "note": "SQLite quick structural check."
+    },
+    {
+      "check_name": "sqlite_integrity_check",
+      "status": "PASS",
+      "value": "ok",
+      "expected": "ok",
+      "note": "SQLite full integrity check."
+    },
+    {
+      "check_name": "legacy_table_row_counts_preserved",
+      "status": "PASS",
+      "value": [],
+      "expected": [],
+      "note": "Every pre-v0.15 table retains its source row count."
+    },
+    {
+      "check_name": "change_rows_positive",
+      "status": "PASS",
+      "value": 152730,
+      "expected": 152730,
+      "note": "Normalized contract-field change rows."
+    },
+    {
+      "check_name": "cluster_rows_positive",
+      "status": "PASS",
+      "value": 24636,
+      "expected": 24636,
+      "note": "Product-date-value descriptive clusters."
+    },
+    {
+      "check_name": "member_reconciliation",
+      "status": "PASS",
+      "value": 152730,
+      "expected": 152730,
+      "note": "Each normalized change row has one cluster membership."
+    },
+    {
+      "check_name": "distinct_member_reconciliation",
+      "status": "PASS",
+      "value": 152730,
+      "expected": 152730,
+      "note": "No change row is omitted or duplicated across clusters."
+    },
+    {
+      "check_name": "cluster_field_sum",
+      "status": "PASS",
+      "value": 152730,
+      "expected": 152730,
+      "note": "Cluster field counts sum to normalized change rows."
+    },
+    {
+      "check_name": "first_observations_excluded",
+      "status": "PASS",
+      "value": 0,
+      "expected": 0,
+      "note": "Initial listings are not mislabeled as changes."
+    },
+    {
+      "check_name": "no_unchanged_rows",
+      "status": "PASS",
+      "value": 0,
+      "expected": 0,
+      "note": "Every normalized row changes value."
+    },
+    {
+      "check_name": "change_date_order",
+      "status": "PASS",
+      "value": 0,
+      "expected": 0,
+      "note": "Previous observation must precede the change date."
+    },
+    {
+      "check_name": "cluster_share_bounds",
+      "status": "PASS",
+      "value": 0,
+      "expected": 0,
+      "note": "Affected contract shares stay within [0,1]."
+    },
+    {
+      "check_name": "ao_bu_cluster_count",
+      "status": "PASS",
+      "value": 1795,
+      "expected": 1795,
+      "note": "AO and BU descriptive change clusters are fully exported."
+    },
+    {
+      "check_name": "verified_summary_coverage",
+      "status": "PASS",
+      "value": 30,
+      "expected": 30,
+      "note": "All source-verified AO/BU margin and price-limit parameter rows."
+    },
+    {
+      "check_name": "verified_detail_coverage",
+      "status": "PASS",
+      "value": 504,
+      "expected": 504,
+      "note": "All notice-scope contract-field pairs."
+    },
+    {
+      "check_name": "bilingual_view_coverage",
+      "status": "PASS",
+      "value": 30,
+      "expected": 30,
+      "note": "Mentor view reconciles to the verified summary."
+    },
+    {
+      "check_name": "observation_date_no_below_notice",
+      "status": "PASS",
+      "value": 0,
+      "expected": 0,
+      "note": "No selected post-close/listing observation is below the verified notice level."
+    },
+    {
+      "check_name": "observation_date_no_missing",
+      "status": "PASS",
+      "value": 0,
+      "expected": 0,
+      "note": "No selected notice-scope official daily observation is missing."
+    },
+    {
+      "check_name": "effective_date_snapshot_retained",
+      "status": "PASS",
+      "value": 290,
+      "expected": 290,
+      "note": "Pre-close values remain visible instead of being overwritten by post-close values."
+    },
+    {
+      "check_name": "close_settlement_rule_count",
+      "status": "PASS",
+      "value": 24,
+      "expected": 24,
+      "note": "Twenty-four parameters use the close-settlement timing rule."
+    },
+    {
+      "check_name": "close_settlement_next_date_mapping",
+      "status": "PASS",
+      "value": 0,
+      "expected": 0,
+      "note": "Close-settlement notices map to the next official trade-parameter date."
+    },
+    {
+      "check_name": "listing_rule_count",
+      "status": "PASS",
+      "value": 6,
+      "expected": 6,
+      "note": "Six parameters describe two newly listed contracts."
+    },
+    {
+      "check_name": "listing_same_date_mapping",
+      "status": "PASS",
+      "value": 0,
+      "expected": 0,
+      "note": "Listing-at-start notices use the listing date itself."
+    },
+    {
+      "check_name": "initial_listing_summary_count",
+      "status": "PASS",
+      "value": 6,
+      "expected": 6,
+      "note": "Initial values are distinguished from within-contract changes."
+    },
+    {
+      "check_name": "level_status_distribution",
+      "status": "PASS",
+      "value": {
+        "all_values_equal_notice_level": 17,
+        "notice_floor_satisfied_with_higher_values_present": 13
+      },
+      "expected": {
+        "all_values_equal_notice_level": 17,
+        "notice_floor_satisfied_with_higher_values_present": 13
+      },
+      "note": "Only exact or from-high-compliant level statuses remain."
+    },
+    {
+      "check_name": "summary_detail_reconciliation",
+      "status": "PASS",
+      "value": 0,
+      "expected": 0,
+      "note": "Every event summary reconciles to contract-field details."
+    },
+    {
+      "check_name": "official_origin_tag",
+      "status": "PASS",
+      "value": 0,
+      "expected": 0,
+      "note": "Observed values retain the official raw-data origin tag."
+    },
+    {
+      "check_name": "embedded_integration_checks",
+      "status": "PASS",
+      "value": 0,
+      "expected": 0,
+      "note": "All embedded v0.15 checks pass."
+    },
+    {
+      "check_name": "field_dictionary_present",
+      "status": "PASS",
+      "value": 9,
+      "expected": ">=9",
+      "note": "Key derived fields and timing choices are documented."
+    },
+    {
+      "check_name": "no_new_prediction_objects",
+      "status": "PASS",
+      "value": 0,
+      "expected": 0,
+      "note": "v0.15 remains a synchronous correspondence layer."
+    },
+    {
+      "check_name": "csv_verified_notice_parameter_alignment_v15.csv_row_count",
+      "status": "PASS",
+      "value": 30,
+      "expected": 30,
+      "note": "CSV data rows reconcile to the database."
+    },
+    {
+      "check_name": "csv_verified_notice_parameter_alignment_v15.csv_utf8_bom",
+      "status": "PASS",
+      "value": true,
+      "expected": true,
+      "note": "UTF-8 BOM supports direct Chinese display in Excel."
+    },
+    {
+      "check_name": "csv_verified_notice_parameter_alignment_v15.csv_paired_columns",
+      "status": "PASS",
+      "value": {
+        "has_utf8_bom": true,
+        "column_count": 36,
+        "column_count_even": true,
+        "headers_nonblank": true,
+        "data_row_count": 30,
+        "all_rows_same_width": true
+      },
+      "expected": "even nonblank columns and consistent row widths",
+      "note": "English and Chinese columns are adjacent and machine-readable."
+    },
+    {
+      "check_name": "csv_verified_notice_parameter_contract_detail_v15.csv_row_count",
+      "status": "PASS",
+      "value": 504,
+      "expected": 504,
+      "note": "CSV data rows reconcile to the database."
+    },
+    {
+      "check_name": "csv_verified_notice_parameter_contract_detail_v15.csv_utf8_bom",
+      "status": "PASS",
+      "value": true,
+      "expected": true,
+      "note": "UTF-8 BOM supports direct Chinese display in Excel."
+    },
+    {
+      "check_name": "csv_verified_notice_parameter_contract_detail_v15.csv_paired_columns",
+      "status": "PASS",
+      "value": {
+        "has_utf8_bom": true,
+        "column_count": 30,
+        "column_count_even": true,
+        "headers_nonblank": true,
+        "data_row_count": 504,
+        "all_rows_same_width": true
+      },
+      "expected": "even nonblank columns and consistent row widths",
+      "note": "English and Chinese columns are adjacent and machine-readable."
+    },
+    {
+      "check_name": "csv_official_product_parameter_change_clusters_v15.csv_row_count",
+      "status": "PASS",
+      "value": 24636,
+      "expected": 24636,
+      "note": "CSV data rows reconcile to the database."
+    },
+    {
+      "check_name": "csv_official_product_parameter_change_clusters_v15.csv_utf8_bom",
+      "status": "PASS",
+      "value": true,
+      "expected": true,
+      "note": "UTF-8 BOM supports direct Chinese display in Excel."
+    },
+    {
+      "check_name": "csv_official_product_parameter_change_clusters_v15.csv_paired_columns",
+      "status": "PASS",
+      "value": {
+        "has_utf8_bom": true,
+        "column_count": 30,
+        "column_count_even": true,
+        "headers_nonblank": true,
+        "data_row_count": 24636,
+        "all_rows_same_width": true
+      },
+      "expected": "even nonblank columns and consistent row widths",
+      "note": "English and Chinese columns are adjacent and machine-readable."
+    },
+    {
+      "check_name": "csv_ao_bu_parameter_change_clusters_v15.csv_row_count",
+      "status": "PASS",
+      "value": 1795,
+      "expected": 1795,
+      "note": "CSV data rows reconcile to the database."
+    },
+    {
+      "check_name": "csv_ao_bu_parameter_change_clusters_v15.csv_utf8_bom",
+      "status": "PASS",
+      "value": true,
+      "expected": true,
+      "note": "UTF-8 BOM supports direct Chinese display in Excel."
+    },
+    {
+      "check_name": "csv_ao_bu_parameter_change_clusters_v15.csv_paired_columns",
+      "status": "PASS",
+      "value": {
+        "has_utf8_bom": true,
+        "column_count": 30,
+        "column_count_even": true,
+        "headers_nonblank": true,
+        "data_row_count": 1795,
+        "all_rows_same_width": true
+      },
+      "expected": "even nonblank columns and consistent row widths",
+      "note": "English and Chinese columns are adjacent and machine-readable."
+    },
+    {
+      "check_name": "no_building_file_left",
+      "status": "PASS",
+      "value": [],
+      "expected": [],
+      "note": "No unfinished database remains."
+    },
+    {
+      "check_name": "no_interim_file_left",
+      "status": "PASS",
+      "value": [],
+      "expected": [],
+      "note": "The superseded same-turn interim was removed after successful replacement."
+    }
+  ]
+}

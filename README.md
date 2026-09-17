@@ -41,6 +41,7 @@ examples/
 audits/
 research_outputs/
   2026-09-02_evidence_audit/
+  2026-09-15_parameter_change_alignment/
 ```
 
 The original HTML pages, attachments and large archive packages are intentionally excluded from Git history. Versioned full-data packages should be distributed through [GitHub Releases](https://github.com/jiang-0106/SHFE-notice-event-risk_management-database/releases).
@@ -56,6 +57,19 @@ The folder [`research_outputs/2026-09-02_evidence_audit`](research_outputs/2026-
 - a revised mentor-facing report and a consolidated Excel workbook.
 
 These files distinguish descriptive statistics, event studies, dynamic regressions, robust inference and prediction. Associations and temporal ordering are not presented as causal effects. The database release remains **v2.2.0**; this research-output update does not replace or delete v2.1/v2.2 history.
+
+## Official parameter-change alignment (2026-09-15)
+
+The folder [`research_outputs/2026-09-15_parameter_change_alignment`](research_outputs/2026-09-15_parameter_change_alignment) adds a synchronous correspondence layer for source-verified AO/BU margin and price-limit notices.
+
+- 152,730 normalized contract-field parameter changes;
+- 24,636 descriptive change clusters, including 1,795 AO/BU clusters;
+- 30 verified notice-parameter records and 504 contract-field evidence rows;
+- separate handling of post-close parameter dates and initial listing observations;
+- bilingual summary, detail and cluster tables;
+- 46/46 independent validation checks passed.
+
+The full v0.15 SQLite database is about 805 MB and is not committed to ordinary Git history. Review-sized CSV/JSON results and reproducible scripts are published instead. This layer remains descriptive: it does not perform prediction or causal attribution.
 
 ## Quick start with DB Browser for SQLite
 
