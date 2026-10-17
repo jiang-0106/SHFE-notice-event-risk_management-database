@@ -71,6 +71,48 @@ The folder [`research_outputs/2026-09-15_parameter_change_alignment`](research_o
 
 The full v0.15 SQLite database is about 805 MB and is not committed to ordinary Git history. Review-sized CSV/JSON results and reproducible scripts are published instead. This layer remains descriptive: it does not perform prediction or causal attribution.
 
+## Market research assistant (v0.16, 2026-10-02)
+
+The v0.16 derived layer adds a local research interface without modifying the v0.15 source database:
+
+- verified notice-parameter start/end intervals with auditable manual overrides;
+- 73,144 product-day trading-intensity records for 25 products;
+- return shock, Parkinson range volatility, volume, turnover, open-interest change, volume/open-interest and Amihud-style price-impact components;
+- historical intense-day screening using trailing, product-specific percentiles and no future observations;
+- a local browser dashboard for product selection, charts, notices, parameter changes and interval review;
+- optional OpenAI Responses API interpretation constrained to research attention and data limitations, with no trade recommendation field.
+
+The v0.16 snapshot ends on 2026-09-09 and is retained as a reproducible historical release. See [`docs/MARKET_RESEARCH_ASSISTANT_V016.md`](docs/MARKET_RESEARCH_ASSISTANT_V016.md).
+
+## Incremental completeness update (v0.17, 2026-10-04)
+
+The v0.17 pipeline adds validated, non-destructive incremental maintenance:
+
+- official market, settlement-parameter and trade-parameter endpoints checked on every weekday through 2026-10-02;
+- all three datasets updated to the latest available trade date, 2026-09-30;
+- 73,494 product-day indicator rows, 2,279 intense/extreme days and 25 product snapshots;
+- explicit availability records that distinguish an official no-file/holiday response from an unresolved network or validation failure;
+- freshness status based on official availability checks instead of calendar-day distance alone;
+- two additional tests for holiday and network-failure freshness decisions (8 tests total).
+
+The v0.17 layer still provides descriptive research attention only. “Current to latest official available” means that the official daily endpoint was checked; it is not real-time market data or a trading recommendation. See [`docs/MARKET_RESEARCH_ASSISTANT_V017.md`](docs/MARKET_RESEARCH_ASSISTANT_V017.md).
+
+## Audit-chain update (v0.18, 2026-10-05)
+
+v0.18 rebuilds the two source-reconciliation layers through 2026-09-30 and adds a 25-product completeness dashboard. It distinguishes official no-file dates from real collection failures and exports daily alignment, daily reconciliation and source-difference summaries for review. Only AO and BU currently have manually verified notice records; the other 23 products are explicitly labelled as market/parameter synchronized with notice review pending. See [`docs/MARKET_RESEARCH_ASSISTANT_V018.md`](docs/MARKET_RESEARCH_ASSISTANT_V018.md).
+
+## EC/SN verified-event update (v0.19, 2026-10-16)
+
+v0.19 updates official data through October 16, defines freshness using the latest date jointly available from market, settlement and trade-parameter sources, imports 41 source-verified EC/SN policy episodes, and classifies historical margin-source differences without selecting a preferred source. AO, BU, EC and SN now have verified notice/event layers. See [`docs/MARKET_RESEARCH_ASSISTANT_V019.md`](docs/MARKET_RESEARCH_ASSISTANT_V019.md).
+
+## Unified event-evidence master table (v0.20, 2026-10-17)
+
+v0.20 adds 59 source-verified EC/SN real-world events, 47 temporal mechanism-chain rows, and a 71-row bilingual master table connecting verified AO/BU/EC/SN policy records with matched market dates and five-day before/after summaries. It distinguishes verified real-event links, market-anomaly-only rows, policy-only rows, and AO/BU records whose real-event layer has not yet been constructed. These labels describe evidence availability, not causality. See [`docs/MARKET_RESEARCH_ASSISTANT_V020.md`](docs/MARKET_RESEARCH_ASSISTANT_V020.md).
+
+## Evidence-quality and multi-window update (v0.21, 2026-10-17)
+
+v0.21 separates 71 parameter rows from 51 unique policy events, adds an initial AO/BU contextual-event evidence layer, grades evidence as A/B/U, and retains mentor-review status. Every unique policy event receives 1-, 5-, 10-, and 20-trading-day descriptive windows plus policy-overlap and contract-roll diagnostics. The review queue contains 33 unique events rather than duplicated parameter rows. See [`docs/MARKET_RESEARCH_ASSISTANT_V021.md`](docs/MARKET_RESEARCH_ASSISTANT_V021.md).
+
 ## Quick start with DB Browser for SQLite
 
 1. Install [DB Browser for SQLite](https://sqlitebrowser.org/).

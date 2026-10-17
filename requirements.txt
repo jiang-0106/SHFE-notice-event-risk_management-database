@@ -1,2 +1,2 @@
-# Query scripts use only the Python standard library.
+# Query, v0.16/v0.17 builds, incremental download/integration, local web server and optional Responses API HTTP calls use only the Python standard library.
 # Recommended Python version: 3.10 or newer.

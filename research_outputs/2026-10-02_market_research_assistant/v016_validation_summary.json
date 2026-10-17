@@ -1,0 +1,46 @@
+{
+  "version": "v0.16-market-research-assistant",
+  "validated_at": "2026-10-02",
+  "sqlite_integrity_check": "ok",
+  "source_last_complete_market_date": "20260909",
+  "policy_interval_count": 21,
+  "daily_indicator_row_count": 73144,
+  "product_snapshot_count": 25,
+  "intense_or_extreme_day_count": 2271,
+  "automated_tests": {
+    "passed": 6,
+    "failed": 0,
+    "coverage": [
+      "historical percentile calculation",
+      "intensity threshold rules",
+      "missing-component weight normalization",
+      "policy interval merging and closing",
+      "AO product API payload and stale-data guard",
+      "AI endpoint fails closed without an API key"
+    ]
+  },
+  "local_api_smoke_test": {
+    "products_returned": 25,
+    "ao_series_rows_requested": 120,
+    "ao_intervals_returned": 12,
+    "ao_verified_notice_records_returned": 18,
+    "status": "pass"
+  },
+  "browser_ui_check": {
+    "ao_initial_render": "pass",
+    "sc_product_switch": "pass",
+    "chart_render": "pass",
+    "interval_timeline_render": "pass",
+    "responsive_text_overflow_fix": "pass"
+  },
+  "windows_launcher_check": {
+    "cmd_to_powershell_to_python": "pass",
+    "products_returned": 25
+  },
+  "openai_live_call": {
+    "status": "not_run",
+    "reason": "OPENAI_API_KEY is not configured",
+    "fallback": "deterministic quantitative report and copyable evidence prompt remain available"
+  },
+  "research_boundary": "Historical research attention only; no price-direction prediction, causal claim, or trade instruction."
+}

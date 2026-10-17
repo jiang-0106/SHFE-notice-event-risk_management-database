@@ -1,0 +1,12 @@
+{
+  "version": "v0.16-market-research-assistant",
+  "database": "E:\\AAAAAAAAAAAAAAAAA\\SW\\SHFE\\outputs\\SHFE市场研究助手_v0.16_20261002\\SHFE公告参数市场研究助手_v0.16.sqlite3",
+  "database_bytes": 824119296,
+  "database_sha256": "23041c902ff531506d4a98d7decad2000e82284d72c64ed850e06ac65baadc61",
+  "integrity_check": "ok",
+  "policy_intervals": 21,
+  "daily_indicator_rows": 73144,
+  "intense_days": 2271,
+  "product_snapshots": 25,
+  "latest_market_date": "20260909"
+}

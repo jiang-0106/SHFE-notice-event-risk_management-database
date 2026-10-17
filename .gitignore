@@ -189,6 +189,8 @@ versions/
 99_历史备份/
 *.html
 *.htm
+!web/
+!web/market_research_assistant.html
 *.dat
 *.pdf
 *.zip
