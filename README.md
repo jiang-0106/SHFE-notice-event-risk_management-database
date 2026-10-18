@@ -2,6 +2,10 @@
 
 上海期货交易所公告标签与风险参数事件数据库。项目基于上海期货交易所公开公告，构建可按“调整原因、调整参数、时间、品种/合约”组合查询的SQLite数据库，并提供Excel入口、Python查询工具、参数事件候选和人工复核机制。
 
+## Complete interaction update (v0.22, 2026-10-18)
+
+v0.22 adds audited web entry for notices and multiple parameter intervals, a parameter-level interval chart, direct product-code input, and latest-official-data gating for objective research-condition classification. User entries remain visibly `pending_review`; the tool never produces personalized buy/sell advice. See [`docs/MARKET_RESEARCH_ASSISTANT_V022.md`](docs/MARKET_RESEARCH_ASSISTANT_V022.md).
+
 > **Independent research project.** This repository is not affiliated with or endorsed by the Shanghai Futures Exchange (SHFE). It does not constitute investment advice.
 
 ## Project snapshot

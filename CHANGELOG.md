@@ -1,5 +1,14 @@
 ﻿# Changelog
 
+## v0.22 complete interaction - 2026-10-18
+
+- Added audited multi-parameter notice entry with effective start/end dates and pending-review provenance.
+- Added combined verified/user policy intervals and parameter-level change visualization.
+- Changed the product selector to direct code input with suggestions.
+- Added deterministic latest-data gating and non-personalized trade-research-condition classification.
+- Extended AI context/schema while retaining `trade_decision=not_assessed`.
+- Added v0.22 artifact and regression tests; 26 tests pass.
+
 ## v0.21 evidence quality and multi-window audit - 2026-10-17
 
 ### Added

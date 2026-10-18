@@ -193,9 +193,49 @@ def save_manual_overrides(output_db: Path) -> list[tuple[Any, ...]]:
             pass
 
 
+USER_INPUT_TABLES = (
+    "user_notice_entry",
+    "user_notice_parameter_record",
+    "user_input_audit_log",
+)
+
+
+def save_user_input_tables(output_db: Path) -> dict[str, tuple[list[str], list[tuple[Any, ...]]]]:
+    if not output_db.exists():
+        return {}
+    conn = sqlite3.connect(output_db)
+    try:
+        saved: dict[str, tuple[list[str], list[tuple[Any, ...]]]] = {}
+        for table in USER_INPUT_TABLES:
+            if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+                continue
+            columns = [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
+            saved[table] = (columns, conn.execute(f"SELECT * FROM {table}").fetchall())
+        return saved
+    finally:
+        conn.close()
+
+
+def restore_user_input_tables(
+    conn: sqlite3.Connection,
+    saved: dict[str, tuple[list[str], list[tuple[Any, ...]]]],
+) -> None:
+    for table, (columns, rows) in saved.items():
+        if not rows:
+            continue
+        target_columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        usable = [column for column in columns if column in target_columns]
+        positions = [columns.index(column) for column in usable]
+        conn.executemany(
+            f"INSERT OR REPLACE INTO {table} ({','.join(usable)}) VALUES ({','.join('?' for _ in usable)})",
+            [tuple(row[position] for position in positions) for row in rows],
+        )
+
+
 def create_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """
+        DROP VIEW IF EXISTS v_all_policy_interval_effective;
         DROP VIEW IF EXISTS v_policy_interval_effective;
         DROP TABLE IF EXISTS research_assistant_build_metadata;
         DROP TABLE IF EXISTS indicator_literature_registry;
@@ -255,6 +295,47 @@ def create_schema(conn: sqlite3.Connection) -> None:
           FOREIGN KEY(interval_id) REFERENCES notice_parameter_policy_interval(interval_id)
         );
 
+        CREATE TABLE IF NOT EXISTS user_notice_entry (
+          user_notice_id TEXT PRIMARY KEY,
+          product_code TEXT NOT NULL,
+          notice_title_cn TEXT NOT NULL,
+          notice_title_en TEXT,
+          announcement_date TEXT NOT NULL,
+          official_source_url TEXT,
+          event_description_cn TEXT,
+          created_by TEXT NOT NULL,
+          review_status TEXT NOT NULL DEFAULT 'pending_review',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS user_notice_parameter_record (
+          record_id TEXT PRIMARY KEY,
+          user_notice_id TEXT NOT NULL,
+          parameter_code TEXT NOT NULL,
+          announced_value REAL NOT NULL,
+          value_unit TEXT NOT NULL,
+          start_date TEXT NOT NULL,
+          end_date TEXT,
+          end_date_inclusive INTEGER NOT NULL DEFAULT 1,
+          instrument_scope TEXT,
+          direction_code TEXT,
+          source_excerpt_cn TEXT,
+          notes_cn TEXT,
+          FOREIGN KEY(user_notice_id) REFERENCES user_notice_entry(user_notice_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS user_input_audit_log (
+          audit_id TEXT PRIMARY KEY,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          before_json TEXT,
+          after_json TEXT NOT NULL,
+          actor TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+
         CREATE VIEW v_policy_interval_effective AS
         SELECT p.interval_id,p.product_code,p.parameter_code,p.announced_value,
                COALESCE(m.manual_start_date,p.start_date) AS start_date,
@@ -267,6 +348,29 @@ def create_schema(conn: sqlite3.Connection) -> None:
                p.derivation_limit_cn,m.override_reason,m.reviewer,m.updated_at
         FROM notice_parameter_policy_interval p
         LEFT JOIN policy_interval_manual_override m USING(interval_id);
+
+        CREATE VIEW v_all_policy_interval_effective AS
+        SELECT interval_id,product_code,parameter_code,announced_value,start_date,end_date,
+               end_date_inclusive,start_boundary,start_date_basis,end_date_basis,interval_status,
+               source_notice_ids,source_notice_titles,instrument_scopes,source_notice_count,
+               derivation_limit_cn,override_reason,reviewer,updated_at,
+               'verified_database' AS source_layer,'reviewed_or_derived' AS review_status,
+               'ratio' AS value_unit
+        FROM v_policy_interval_effective
+        UNION ALL
+        SELECT p.record_id AS interval_id,n.product_code,p.parameter_code,p.announced_value,
+               p.start_date,p.end_date,p.end_date_inclusive,
+               'user_entered_effective_start' AS start_boundary,
+               'user_entered_from_notice' AS start_date_basis,
+               CASE WHEN p.end_date IS NULL THEN 'open_ended_user_entry' ELSE 'user_entered_from_notice' END AS end_date_basis,
+               CASE WHEN p.end_date IS NULL THEN 'open' ELSE 'closed' END AS interval_status,
+               n.user_notice_id AS source_notice_ids,n.notice_title_cn AS source_notice_titles,
+               COALESCE(p.instrument_scope,'未填写') AS instrument_scopes,1 AS source_notice_count,
+               '用户录入，尚待与官方原文及结构化数据库复核。' AS derivation_limit_cn,
+               p.notes_cn AS override_reason,n.created_by AS reviewer,n.updated_at,
+               'user_entry' AS source_layer,n.review_status,p.value_unit
+        FROM user_notice_parameter_record p
+        JOIN user_notice_entry n USING(user_notice_id);
 
         CREATE TABLE product_trading_intensity_daily (
           trade_date TEXT NOT NULL,
@@ -1322,6 +1426,7 @@ def main() -> None:
     dotted_tag = args.artifact_tag.replace("v0", "v0.") if args.artifact_tag.startswith("v0") and "." not in args.artifact_tag else args.artifact_tag
     output_db = output_dir / f"SHFE公告参数市场研究助手_{dotted_tag}.sqlite3"
     overrides = save_manual_overrides(output_db)
+    user_input = save_user_input_tables(output_db)
     building = output_db.with_suffix(output_db.suffix + ".building")
     if building.exists():
         building.unlink()
@@ -1330,6 +1435,7 @@ def main() -> None:
     conn.row_factory = sqlite3.Row
     try:
         create_schema(conn)
+        restore_user_input_tables(conn, user_input)
         conn.executemany(
             "INSERT INTO indicator_literature_registry VALUES (?,?,?,?,?,?,?,?,?,?)",
             [tuple(item.values()) for item in LITERATURE],
@@ -1374,7 +1480,7 @@ def main() -> None:
     conn = sqlite3.connect(output_db)
     try:
         exports = output_dir / "exports"
-        export_query(conn, "SELECT * FROM v_policy_interval_effective ORDER BY product_code,parameter_code,start_date", exports / f"notice_parameter_policy_intervals_{args.artifact_tag}.csv")
+        export_query(conn, "SELECT * FROM v_all_policy_interval_effective ORDER BY product_code,parameter_code,start_date", exports / f"notice_parameter_policy_intervals_{args.artifact_tag}.csv")
         export_query(conn, "SELECT * FROM product_research_snapshot ORDER BY product_code", exports / f"product_research_snapshot_{args.artifact_tag}.csv")
         export_query(
             conn,
