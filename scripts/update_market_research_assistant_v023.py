@@ -46,6 +46,8 @@ def main() -> None:
     parser.add_argument("--through", default=date.today().strftime("%Y%m%d"))
     parser.add_argument("--lookback-days", type=int, default=3)
     parser.add_argument("--workers", type=int, default=6)
+    parser.add_argument("--artifact-tag", default="v024")
+    parser.add_argument("--release-version", default="v0.24-bidirectional-completeness-audit")
     parser.add_argument("--plan-only", action="store_true")
     parser.add_argument("--resume", action="store_true", help="Reuse a completed integrated database after an interrupted build.")
     args = parser.parse_args()
@@ -64,8 +66,9 @@ def main() -> None:
 
     raw = output / "official_incremental_raw"
     manifest = raw / "official_incremental_manifest.json"
-    integrated = output / "SHFE公告参数市场同步数据库_增量_v0.23.sqlite3"
-    assistant = output / "SHFE公告参数市场研究助手_v0.23.sqlite3"
+    dotted_tag = args.artifact_tag.replace("v0", "v0.") if args.artifact_tag.startswith("v0") and "." not in args.artifact_tag else args.artifact_tag
+    integrated = output / f"SHFE公告参数市场同步数据库_增量_{dotted_tag}.sqlite3"
+    assistant = output / f"SHFE公告参数市场研究助手_{dotted_tag}.sqlite3"
     if not args.plan_only and assistant.exists():
         raise SystemExit("目标研究助手数据库已存在。为避免覆盖，请换一个新的输出目录。")
     if not args.plan_only and integrated.exists() and not args.resume:
@@ -78,8 +81,8 @@ def main() -> None:
                  "--source-db", str(source), "--manifest", str(manifest), "--output-db", str(integrated)]
     build = [sys.executable, str(ROOT / "scripts" / "build_market_research_assistant_v016.py"),
              "--source-db", str(integrated), "--output-dir", str(output),
-             "--build-date", through.isoformat(), "--version", "v0.23-maintenance-workflow",
-             "--artifact-tag", "v023"]
+             "--build-date", through.isoformat(), "--version", args.release_version,
+             "--artifact-tag", args.artifact_tag]
     plan = {
         "status": "plan_only" if args.plan_only else "running",
         "source_database": str(source), "source_latest_complete_date": latest_complete.strftime("%Y%m%d"),

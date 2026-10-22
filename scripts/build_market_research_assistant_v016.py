@@ -243,6 +243,8 @@ def create_schema(conn: sqlite3.Connection) -> None:
         DROP TABLE IF EXISTS product_trading_intensity_daily;
         DROP TABLE IF EXISTS product_research_snapshot;
         DROP TABLE IF EXISTS product_data_completeness_dashboard;
+        DROP TABLE IF EXISTS product_correspondence_completeness;
+        DROP TABLE IF EXISTS notice_parameter_correspondence_audit;
         DROP TABLE IF EXISTS notice_parameter_market_real_event_master;
         DROP TABLE IF EXISTS unique_policy_event_summary;
         DROP TABLE IF EXISTS policy_market_window_statistics;
@@ -478,6 +480,48 @@ def create_schema(conn: sqlite3.Connection) -> None:
           generated_at TEXT NOT NULL
         );
 
+        CREATE TABLE notice_parameter_correspondence_audit (
+          audit_id TEXT PRIMARY KEY,
+          audit_direction TEXT NOT NULL,
+          audit_direction_cn TEXT NOT NULL,
+          product_code TEXT NOT NULL,
+          reference_date TEXT NOT NULL,
+          parameter_code TEXT NOT NULL,
+          notice_id TEXT,
+          notice_title_cn TEXT,
+          cluster_id TEXT,
+          old_value REAL,
+          new_value REAL,
+          affected_contract_share REAL,
+          nearest_date_gap_days INTEGER,
+          correspondence_status TEXT NOT NULL,
+          review_priority TEXT NOT NULL,
+          explanation_cn TEXT NOT NULL,
+          explanation_en TEXT NOT NULL,
+          official_source_url TEXT,
+          generated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE product_correspondence_completeness (
+          product_code TEXT PRIMARY KEY,
+          notice_corpus_status TEXT NOT NULL,
+          notice_corpus_status_cn TEXT NOT NULL,
+          verified_notice_records INTEGER NOT NULL,
+          notice_audit_rows INTEGER NOT NULL,
+          notice_observable_rows INTEGER NOT NULL,
+          notice_rows_with_observed_change INTEGER NOT NULL,
+          notice_observed_correspondence_pct REAL,
+          policy_like_parameter_clusters INTEGER NOT NULL,
+          clusters_with_notice_candidate INTEGER NOT NULL,
+          cluster_notice_candidate_pct REAL,
+          high_priority_review_rows INTEGER NOT NULL,
+          correspondence_readiness_status TEXT NOT NULL,
+          correspondence_readiness_status_cn TEXT NOT NULL,
+          interpretation_boundary_cn TEXT NOT NULL,
+          interpretation_boundary_en TEXT NOT NULL,
+          generated_at TEXT NOT NULL
+        );
+
         CREATE TABLE notice_parameter_market_real_event_master (
           master_id TEXT PRIMARY KEY,
           source_policy_layer TEXT NOT NULL,
@@ -632,6 +676,10 @@ def create_schema(conn: sqlite3.Connection) -> None:
           ON user_notice_parameter_record(user_notice_id,parameter_code,start_date);
         CREATE INDEX IF NOT EXISTS ix_user_audit_entity
           ON user_input_audit_log(entity_type,entity_id,created_at);
+        CREATE INDEX IF NOT EXISTS ix_correspondence_product_priority
+          ON notice_parameter_correspondence_audit(product_code,review_priority,reference_date);
+        CREATE INDEX IF NOT EXISTS ix_correspondence_status
+          ON notice_parameter_correspondence_audit(audit_direction,correspondence_status);
         """
     )
     conn.execute(
@@ -1444,6 +1492,197 @@ def build_completeness_dashboard(conn: sqlite3.Connection) -> int:
     return len(output)
 
 
+def build_bidirectional_correspondence_audit(conn: sqlite3.Connection) -> tuple[int, int]:
+    """Audit notice-to-parameter and parameter-to-notice correspondence without asserting causality."""
+    generated_at = datetime.now().astimezone().isoformat(timespec="seconds")
+
+    def audit_id(*parts: object) -> str:
+        digest = hashlib.sha256("|".join(str(item or "") for item in parts).encode("utf-8")).hexdigest()[:20]
+        return f"corr_{digest}"
+
+    def normalize_date(value: str) -> str:
+        return str(value).replace("-", "")
+
+    def gap_days(left: str, right: str) -> int:
+        return abs((datetime.strptime(normalize_date(left), "%Y%m%d") - datetime.strptime(normalize_date(right), "%Y%m%d")).days)
+
+    clusters = [dict(row) for row in conn.execute(
+        """SELECT * FROM official_product_parameter_change_cluster
+           WHERE scope_class IN ('majority_of_active_contracts','all_active_contracts')
+           ORDER BY product_code,trade_date,parameter_code,cluster_id"""
+    )]
+    clusters_by_product: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    clusters_by_id = {}
+    for cluster in clusters:
+        clusters_by_product[cluster["product_code"]].append(cluster)
+        clusters_by_id[cluster["cluster_id"]] = cluster
+
+    notice_candidates: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    output: list[tuple] = []
+
+    alignment_rows = [dict(row) for row in conn.execute(
+        "SELECT * FROM verified_notice_parameter_change_alignment ORDER BY product_code,announcement_date,verified_parameter_id"
+    )]
+    for row in alignment_rows:
+        reference_date = normalize_date(row["observation_trade_date"] or row["effective_date"] or row["announcement_date"])
+        direct_ids = [item for item in (row["matching_cluster_ids"] or "").split(";") if item]
+        direct_clusters = [clusters_by_id[item] for item in direct_ids if item in clusters_by_id]
+        status = row["change_point_alignment_status"]
+        if status == "all_fields_changed_on_observation_date":
+            correspondence = "verified_change_observed"
+            priority = "low"
+            explanation_cn = "公告参数值与官方日度参数一致，且观察日检测到参数变化。"
+            explanation_en = "The notice level agrees with official daily parameters and a change is observed on the observation date."
+        elif status == "partial_change_with_preexisting_values":
+            correspondence = "partial_change_or_preexisting_level"
+            priority = "medium"
+            explanation_cn = "部分字段在观察日变化，部分字段此前已处于公告水平，需要保留分字段解释。"
+            explanation_en = "Some fields changed on the observation date while others already had the announced level; field-level interpretation is required."
+        elif status == "no_change_point_level_already_present":
+            correspondence = "level_present_without_new_change"
+            priority = "medium"
+            explanation_cn = "观察到公告参数水平，但该水平在公告前已经存在，不能将其表述为公告导致的变化。"
+            explanation_en = "The announced level is observed but predates the notice, so it must not be described as a notice-driven change."
+        else:
+            correspondence = "initial_listing_observation"
+            priority = "low"
+            explanation_cn = "对应字段首次出现于新合约挂牌记录，属于初始观察而不是既有合约参数变更。"
+            explanation_en = "The field first appears with a newly listed contract and is an initial observation rather than a change to an existing contract."
+        nearest = min((gap_days(reference_date, item["trade_date"]) for item in direct_clusters), default=None)
+        cluster = direct_clusters[0] if direct_clusters else None
+        output.append((
+            audit_id("notice", row["verified_parameter_id"]), "notice_to_parameter", "公告→参数", row["product_code"],
+            reference_date, row["parameter_code"], row["notice_id"], row["notice_title"],
+            cluster["cluster_id"] if cluster else None, cluster["old_value"] if cluster else None,
+            cluster["new_value"] if cluster else row["observed_max"],
+            cluster["affected_contract_share"] if cluster else None, nearest, correspondence, priority,
+            explanation_cn, explanation_en, row["official_source_url"], generated_at,
+        ))
+        notice_candidates[row["product_code"]].append({
+            "date": reference_date, "notice_id": row["notice_id"], "title": row["notice_title"],
+            "url": row["official_source_url"], "parameters": {row["parameter_code"]},
+            "direct_cluster_ids": set(direct_ids),
+        })
+
+    has_ec_sn = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='verified_notice_episode_ec_sn'"
+    ).fetchone()
+    if has_ec_sn:
+        for row in map(dict, conn.execute(
+            "SELECT * FROM verified_notice_episode_ec_sn ORDER BY product_code,announcement_date,notice_episode_id"
+        )):
+            reference_date = normalize_date(row["analysis_event_trade_day"] or row["policy_reference_date"] or row["announcement_date"])
+            observable = row["event_type"] in {"margin_and_price_limit", "holiday_temporary_margin_and_limit"}
+            compatible = {"margin_general", "margin_hedge", "price_limit"} if observable else set()
+            nearby = [item for item in clusters_by_product[row["product_code"]]
+                      if item["parameter_code"] in compatible and gap_days(reference_date, item["trade_date"]) <= 7]
+            nearby.sort(key=lambda item: (gap_days(reference_date, item["trade_date"]), item["cluster_id"]))
+            cluster = nearby[0] if nearby else None
+            if not observable:
+                correspondence, priority = "not_observable_in_current_daily_sources", "low"
+                explanation_cn = "该公告涉及手续费或盘中开仓限制，现有日度保证金/涨跌停板数据不能直接验证。"
+                explanation_en = "The notice concerns fees or intraday opening restrictions, which cannot be directly verified with the current daily margin/price-limit sources."
+            elif cluster:
+                correspondence, priority = "candidate_change_near_reference_date", "medium"
+                explanation_cn = "政策参考日前后7个自然日内存在同类参数变化候选；仍需逐合约核对，不能自动认定因果。"
+                explanation_en = "A compatible parameter-change candidate occurs within seven calendar days; contract-level review is still required and causality is not inferred."
+            else:
+                correspondence, priority = "observable_notice_without_nearby_cluster", "high"
+                explanation_cn = "公告属于现有日度数据可观察类型，但参考日前后7个自然日内未找到多数/全部合约参数变化候选。"
+                explanation_en = "The notice is observable in current daily sources, but no majority/all-contract change candidate was found within seven calendar days."
+            output.append((
+                audit_id("notice", row["notice_episode_id"]), "notice_to_parameter", "公告→参数", row["product_code"],
+                reference_date, row["event_type"], row["notice_id"], row["official_title_cn"],
+                cluster["cluster_id"] if cluster else None, cluster["old_value"] if cluster else None,
+                cluster["new_value"] if cluster else None, cluster["affected_contract_share"] if cluster else None,
+                gap_days(reference_date, cluster["trade_date"]) if cluster else None, correspondence, priority,
+                explanation_cn, explanation_en, row["official_source_url"], generated_at,
+            ))
+            notice_candidates[row["product_code"]].append({
+                "date": reference_date, "notice_id": row["notice_id"], "title": row["official_title_cn"],
+                "url": row["official_source_url"], "parameters": compatible,
+                "direct_cluster_ids": set(),
+            })
+
+    corpus_status = {"AO": "partial_parameter_level_verified", "BU": "partial_parameter_level_verified",
+                     "EC": "partial_episode_level_verified", "SN": "partial_episode_level_verified"}
+    latest_parameter_date = conn.execute("SELECT MAX(trade_date) FROM official_trade_parameter_daily").fetchone()[0]
+    recent_cutoff = (datetime.strptime(latest_parameter_date, "%Y%m%d") - timedelta(days=366)).strftime("%Y%m%d")
+    for cluster in clusters:
+        candidates = []
+        for notice in notice_candidates[cluster["product_code"]]:
+            compatible = not notice["parameters"] or cluster["parameter_code"] in notice["parameters"]
+            if compatible and (cluster["cluster_id"] in notice["direct_cluster_ids"] or gap_days(cluster["trade_date"], notice["date"]) <= 7):
+                candidates.append(notice)
+        candidates.sort(key=lambda item: (gap_days(cluster["trade_date"], item["date"]), item["notice_id"]))
+        notice = candidates[0] if candidates else None
+        if notice:
+            direct = cluster["cluster_id"] in notice["direct_cluster_ids"]
+            correspondence = "verified_notice_link" if direct else "candidate_notice_within_7d"
+            priority = "low" if direct else "medium"
+            explanation_cn = ("该参数变化簇已被参数级公告核验记录直接引用。" if direct else
+                              "前后7个自然日内存在同品种、同类公告候选；需人工核对后才能建立直接链接。")
+            explanation_en = ("This parameter-change cluster is directly referenced by a parameter-level verified notice record." if direct else
+                              "A compatible same-product notice candidate exists within seven calendar days; a direct link requires human review.")
+        elif cluster["product_code"] in corpus_status:
+            correspondence = "no_candidate_in_current_verified_records"
+            priority = "high" if cluster["scope_class"] == "all_active_contracts" and cluster["trade_date"] >= recent_cutoff else "medium"
+            explanation_cn = ("该近一年、覆盖全部活跃合约的参数变化在现有部分核验记录中没有前后7日公告候选，列为高优先级补充检索。" if priority == "high" else
+                              "该参数变化在现有部分核验记录中没有前后7日公告候选；现有公告集并非全量，不能解释为没有公告。")
+            explanation_en = ("This recent all-active-contract change has no notice candidate within seven days in the current partial verified records and is prioritized for retrieval." if priority == "high" else
+                              "No candidate within seven days appears in the current partial verified records; the notice set is not exhaustive, so this is not evidence that no notice exists.")
+        else:
+            correspondence, priority = "notice_corpus_not_yet_built", "corpus_gap"
+            explanation_cn = "该品种尚未建设已核验公告语料库，因此只能标记为待补公告，不能解释为交易所未发布公告。"
+            explanation_en = "A verified notice corpus has not yet been built for this product; this is a corpus gap and does not mean the exchange issued no notice."
+        output.append((
+            audit_id("parameter", cluster["cluster_id"]), "parameter_to_notice", "参数→公告", cluster["product_code"],
+            cluster["trade_date"], cluster["parameter_code"], notice["notice_id"] if notice else None,
+            notice["title"] if notice else None, cluster["cluster_id"], cluster["old_value"], cluster["new_value"],
+            cluster["affected_contract_share"], gap_days(cluster["trade_date"], notice["date"]) if notice else None,
+            correspondence, priority, explanation_cn, explanation_en, notice["url"] if notice else None, generated_at,
+        ))
+
+    conn.executemany(
+        "INSERT INTO notice_parameter_correspondence_audit VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", output
+    )
+
+    summary_rows = []
+    products = [row[0] for row in conn.execute("SELECT product_code FROM dim_product ORDER BY product_code")]
+    status_cn = {"partial_parameter_level_verified": "已有参数级核验记录（非全量）", "partial_episode_level_verified": "已有事件级核验记录（非全量）",
+                 "not_built": "已核验公告语料库待建设"}
+    for product in products:
+        status = corpus_status.get(product, "not_built")
+        notice_rows = [row for row in output if row[3] == product and row[1] == "notice_to_parameter"]
+        observable_rows = [row for row in notice_rows if row[13] != "not_observable_in_current_daily_sources"]
+        observed_rows = [row for row in observable_rows if row[13] in {
+            "verified_change_observed", "partial_change_or_preexisting_level", "level_present_without_new_change",
+            "initial_listing_observation", "candidate_change_near_reference_date"
+        }]
+        cluster_rows = [row for row in output if row[3] == product and row[1] == "parameter_to_notice"]
+        linked_clusters = [row for row in cluster_rows if row[13] in {"verified_notice_link", "candidate_notice_within_7d"}]
+        high = sum(row[14] == "high" for row in notice_rows + cluster_rows)
+        notice_pct = round(100 * len(observed_rows) / len(observable_rows), 3) if observable_rows else None
+        cluster_pct = round(100 * len(linked_clusters) / len(cluster_rows), 3) if cluster_rows and status != "not_built" else None
+        if status == "not_built":
+            readiness, readiness_cn = "notice_corpus_pending", "市场与参数已同步，公告语料库待建设"
+        elif high:
+            readiness, readiness_cn = "review_gaps_present", "已建公告语料库，仍有高优先级对应缺口"
+        else:
+            readiness, readiness_cn = "audited_no_high_priority_gap", "双向核验完成，未发现高优先级缺口"
+        summary_rows.append((
+            product, status, status_cn[status], len({row[6] for row in notice_rows}), len(notice_rows), len(observable_rows), len(observed_rows),
+            notice_pct, len(cluster_rows), len(linked_clusters), cluster_pct, high, readiness, readiness_cn,
+            "参数变化仅筛选多数或全部活跃合约的候选簇；7日对应是复核线索，不代表公告导致参数变化。",
+            "Only majority/all-active-contract clusters are screened; a seven-day correspondence is a review lead, not evidence of causality.",
+            generated_at,
+        ))
+    conn.executemany(
+        "INSERT INTO product_correspondence_completeness VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", summary_rows
+    )
+    return len(output), len(summary_rows)
+
+
 def export_query(conn: sqlite3.Connection, sql: str, path: Path) -> int:
     cursor = conn.execute(sql)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1492,6 +1731,7 @@ def main() -> None:
         unique_policy_count, window_count, overlap_count = build_unique_policy_events_and_audits(conn, computed)
         snapshot_count = build_snapshots(conn, computed, build_date)
         completeness_count = build_completeness_dashboard(conn)
+        correspondence_audit_count, correspondence_product_count = build_bidirectional_correspondence_audit(conn)
         metadata = {
             "version": args.version,
             "built_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -1506,6 +1746,8 @@ def main() -> None:
             "policy_overlap_audit_count": str(overlap_count),
             "product_snapshot_count": str(snapshot_count),
             "product_completeness_count": str(completeness_count),
+            "correspondence_audit_count": str(correspondence_audit_count),
+            "correspondence_product_count": str(correspondence_product_count),
             "research_boundary": "descriptive_research_attention_only_no_trade_recommendation",
         }
         conn.executemany("INSERT INTO research_assistant_build_metadata VALUES (?,?)", metadata.items())
@@ -1529,6 +1771,9 @@ def main() -> None:
         )
         export_query(conn, "SELECT * FROM indicator_literature_registry ORDER BY year", exports / f"indicator_literature_registry_{args.artifact_tag}.csv")
         export_query(conn, "SELECT * FROM product_data_completeness_dashboard ORDER BY product_code", exports / f"product_data_completeness_{args.artifact_tag}.csv")
+        export_query(conn, "SELECT * FROM product_correspondence_completeness ORDER BY product_code", exports / f"product_correspondence_completeness_{args.artifact_tag}.csv")
+        export_query(conn, "SELECT * FROM notice_parameter_correspondence_audit ORDER BY product_code,review_priority,reference_date", exports / f"notice_parameter_bidirectional_audit_{args.artifact_tag}.csv")
+        export_query(conn, "SELECT * FROM notice_parameter_correspondence_audit WHERE review_priority IN ('high','corpus_gap') ORDER BY review_priority,product_code,reference_date", exports / f"notice_parameter_review_queue_{args.artifact_tag}.csv")
         export_query(conn, "SELECT * FROM trade_parameter_market_alignment_daily ORDER BY trade_date", exports / f"parameter_market_alignment_{args.artifact_tag}.csv")
         export_query(conn, "SELECT * FROM trade_parameter_settlement_reconciliation_daily ORDER BY trade_date", exports / f"parameter_settlement_reconciliation_{args.artifact_tag}.csv")
         export_query(
@@ -1580,6 +1825,9 @@ def main() -> None:
             "intense_days": conn.execute("SELECT COUNT(*) FROM product_trading_intensity_daily WHERE intensity_level IN ('intense','extreme')").fetchone()[0],
             "product_snapshots": conn.execute("SELECT COUNT(*) FROM product_research_snapshot").fetchone()[0],
             "product_completeness_rows": conn.execute("SELECT COUNT(*) FROM product_data_completeness_dashboard").fetchone()[0],
+            "correspondence_audit_rows": conn.execute("SELECT COUNT(*) FROM notice_parameter_correspondence_audit").fetchone()[0],
+            "high_priority_correspondence_gaps": conn.execute("SELECT COUNT(*) FROM notice_parameter_correspondence_audit WHERE review_priority='high'").fetchone()[0],
+            "products_with_verified_notice_corpus": conn.execute("SELECT COUNT(*) FROM product_correspondence_completeness WHERE notice_corpus_status!='not_built'").fetchone()[0],
             "latest_market_date": conn.execute("SELECT MAX(trade_date) FROM product_trading_intensity_daily").fetchone()[0],
         }
     finally:

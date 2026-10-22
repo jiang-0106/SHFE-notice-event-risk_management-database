@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import os
 import sqlite3
@@ -73,6 +75,10 @@ def build_ai_context(payload: dict) -> dict:
         "multiwindow_statistics": payload.get("window_statistics", [])[:24],
         "policy_overlap_audit": payload.get("overlap_audit", [])[:12],
         "data_completeness": payload.get("completeness"),
+        "notice_parameter_correspondence_summary": payload.get("correspondence_summary"),
+        "high_priority_correspondence_review": [
+            row for row in payload.get("correspondence_audit", []) if row.get("review_priority") == "high"
+        ][:20],
         "trade_research_assessment": payload.get("trade_research_assessment"),
         "evidence_boundary": snapshot["evidence_boundary_cn"],
     }
@@ -548,6 +554,20 @@ def product_payload(conn: sqlite3.Connection, product: str, days: int = 252) -> 
         completeness = row_dict(
             conn.execute("SELECT * FROM product_data_completeness_dashboard WHERE product_code=?", (product,)).fetchone()
         )
+    correspondence_summary = None
+    correspondence_audit = []
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='product_correspondence_completeness'").fetchone():
+        correspondence_summary = row_dict(conn.execute(
+            "SELECT * FROM product_correspondence_completeness WHERE product_code=?", (product,)
+        ).fetchone())
+        correspondence_audit = query_dicts(
+            conn,
+            """SELECT * FROM notice_parameter_correspondence_audit
+               WHERE product_code=?
+               ORDER BY CASE review_priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'corpus_gap' THEN 3 ELSE 4 END,
+                        reference_date DESC LIMIT 200""",
+            (product,),
+        )
     event_master = []
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='notice_parameter_market_real_event_master'").fetchone():
         master_columns = {row[1] for row in conn.execute("PRAGMA table_info(notice_parameter_market_real_event_master)")}
@@ -604,6 +624,8 @@ def product_payload(conn: sqlite3.Connection, product: str, days: int = 252) -> 
         "notices": notices,
         "literature": literature,
         "completeness": completeness,
+        "correspondence_summary": correspondence_summary,
+        "correspondence_audit": correspondence_audit,
         "event_master": event_master,
         "unique_policy_events": unique_policy_events,
         "window_statistics": window_statistics,
@@ -706,6 +728,21 @@ class AppHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def csv_response(self, rows: list[dict], filename: str) -> None:
+        stream = io.StringIO(newline="")
+        if rows:
+            writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+        data = ("\ufeff" + stream.getvalue()).encode("utf-8")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
     def open_db(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -730,6 +767,17 @@ class AppHandler(BaseHTTPRequestHandler):
                     product = params.get("code", [""])[0]
                     days = int(params.get("days", ["252"])[0])
                     self.json_response(product_payload(conn, product, days))
+                    return
+                if parsed.path == "/api/export/correspondence":
+                    params = parse_qs(parsed.query)
+                    product = params.get("code", [""])[0].upper().strip()
+                    if not product or not conn.execute("SELECT 1 FROM dim_product WHERE product_code=?", (product,)).fetchone():
+                        raise ValueError("请提供有效品种代码")
+                    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='notice_parameter_correspondence_audit'").fetchone():
+                        raise ValueError("当前数据库版本尚无双向核验表")
+                    rows = query_dicts(conn, """SELECT * FROM notice_parameter_correspondence_audit
+                                                  WHERE product_code=? ORDER BY reference_date,audit_direction""", (product,))
+                    self.csv_response(rows, f"{product}_notice_parameter_correspondence.csv")
                     return
                 if parsed.path == "/api/user-notices":
                     params = parse_qs(parsed.query)

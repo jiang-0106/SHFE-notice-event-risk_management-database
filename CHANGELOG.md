@@ -1,5 +1,14 @@
 ﻿# Changelog
 
+## v0.24 bidirectional completeness audit - 2026-10-21
+
+- Added product-level notice-corpus completeness for all 25 products.
+- Added bilingual notice-to-parameter and parameter-to-notice audit records.
+- Separated partial verified records from products whose notice corpus is not yet built.
+- Limited policy-like parameter candidates to majority/all-active-contract changes.
+- Added a focused high-priority retrieval queue for recent all-active-contract gaps.
+- Added per-product CSV export and static full/review-queue exports.
+
 ## v0.23 maintenance workflow - 2026-10-21
 
 - Added edit, approve, reject and withdraw transitions for user-entered notices with optimistic record versions.
