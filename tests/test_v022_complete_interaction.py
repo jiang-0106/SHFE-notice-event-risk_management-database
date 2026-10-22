@@ -13,6 +13,7 @@ DB = Path(r"E:\AAAAAAAAAAAAAAAAA\SW\SHFE\outputs\SHFE市场研究助手_v0.22_20
 class UserEntryUnitTests(unittest.TestCase):
     def setUp(self):
         self.conn = sqlite3.connect(":memory:")
+        self.conn.row_factory = sqlite3.Row
         self.conn.executescript(
             """
             CREATE TABLE product_research_snapshot(product_code TEXT PRIMARY KEY);
@@ -20,7 +21,9 @@ class UserEntryUnitTests(unittest.TestCase):
             CREATE TABLE user_notice_entry(
               user_notice_id TEXT PRIMARY KEY,product_code TEXT,notice_title_cn TEXT,notice_title_en TEXT,
               announcement_date TEXT,official_source_url TEXT,event_description_cn TEXT,created_by TEXT,
-              review_status TEXT,created_at TEXT,updated_at TEXT);
+              review_status TEXT,reviewed_by TEXT,reviewed_at TEXT,review_note TEXT,
+              validation_warnings_json TEXT DEFAULT '[]',record_version INTEGER DEFAULT 1,
+              created_at TEXT,updated_at TEXT);
             CREATE TABLE user_notice_parameter_record(
               record_id TEXT PRIMARY KEY,user_notice_id TEXT,parameter_code TEXT,announced_value REAL,
               value_unit TEXT,start_date TEXT,end_date TEXT,end_date_inclusive INTEGER,instrument_scope TEXT,
@@ -51,6 +54,30 @@ class UserEntryUnitTests(unittest.TestCase):
                 "product_code": "AO", "notice_title_cn": "测试", "announcement_date": "20261018",
                 "created_by": "tester", "parameters": [{"parameter_code": "X", "announced_value": 1,
                 "start_date": "20261020", "end_date": "20261019"}]})
+
+    def test_review_workflow_and_optimistic_version(self):
+        created = app.create_user_notice(self.conn, {
+            "product_code": "AO", "notice_title_cn": "带来源的测试公告", "announcement_date": "20261018",
+            "official_source_url": "https://www.shfe.com.cn/example", "created_by": "author",
+            "parameters": [{"parameter_code": "TRADING_MARGIN", "announced_value": 0.12,
+                            "value_unit": "ratio", "start_date": "20261019"}]})
+        approved = app.review_user_notice(self.conn, {
+            "user_notice_id": created["user_notice_id"], "record_version": 1,
+            "action": "approve", "reviewer": "reviewer", "review_note": "已核对官方原文"})
+        self.assertEqual(approved["review_status"], "approved")
+        self.assertEqual(approved["record_version"], 2)
+        with self.assertRaisesRegex(ValueError, "重新加载"):
+            app.review_user_notice(self.conn, {
+                "user_notice_id": created["user_notice_id"], "record_version": 1,
+                "action": "withdraw", "reviewer": "reviewer", "review_note": "旧页面操作"})
+        self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM user_input_audit_log").fetchone()[0], 2)
+
+    def test_ratio_percent_entry_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "12%应录入0.12"):
+            app.create_user_notice(self.conn, {
+                "product_code": "AO", "notice_title_cn": "错误单位测试", "announcement_date": "20261018",
+                "created_by": "tester", "parameters": [{"parameter_code": "MARGIN",
+                "announced_value": 12, "value_unit": "ratio", "start_date": "20261019"}]})
 
     def test_stale_data_never_becomes_trade_condition(self):
         result = app.build_trade_research_assessment({

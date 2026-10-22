@@ -242,6 +242,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
         DROP TABLE IF EXISTS notice_parameter_policy_interval;
         DROP TABLE IF EXISTS product_trading_intensity_daily;
         DROP TABLE IF EXISTS product_research_snapshot;
+        DROP TABLE IF EXISTS product_data_completeness_dashboard;
         DROP TABLE IF EXISTS notice_parameter_market_real_event_master;
         DROP TABLE IF EXISTS unique_policy_event_summary;
         DROP TABLE IF EXISTS policy_market_window_statistics;
@@ -305,6 +306,11 @@ def create_schema(conn: sqlite3.Connection) -> None:
           event_description_cn TEXT,
           created_by TEXT NOT NULL,
           review_status TEXT NOT NULL DEFAULT 'pending_review',
+          reviewed_by TEXT,
+          reviewed_at TEXT,
+          review_note TEXT,
+          validation_warnings_json TEXT NOT NULL DEFAULT '[]',
+          record_version INTEGER NOT NULL DEFAULT 1,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
@@ -334,6 +340,12 @@ def create_schema(conn: sqlite3.Connection) -> None:
           after_json TEXT NOT NULL,
           actor TEXT NOT NULL,
           created_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS research_assistant_schema_migration (
+          migration_id TEXT PRIMARY KEY,
+          applied_at TEXT NOT NULL,
+          description_cn TEXT NOT NULL
         );
 
         CREATE VIEW v_policy_interval_effective AS
@@ -368,9 +380,11 @@ def create_schema(conn: sqlite3.Connection) -> None:
                COALESCE(p.instrument_scope,'未填写') AS instrument_scopes,1 AS source_notice_count,
                '用户录入，尚待与官方原文及结构化数据库复核。' AS derivation_limit_cn,
                p.notes_cn AS override_reason,n.created_by AS reviewer,n.updated_at,
-               'user_entry' AS source_layer,n.review_status,p.value_unit
+               CASE WHEN n.review_status='approved' THEN 'user_approved' ELSE 'user_pending' END AS source_layer,
+               n.review_status,p.value_unit
         FROM user_notice_parameter_record p
-        JOIN user_notice_entry n USING(user_notice_id);
+        JOIN user_notice_entry n USING(user_notice_id)
+        WHERE n.review_status IN ('pending_review','approved');
 
         CREATE TABLE product_trading_intensity_daily (
           trade_date TEXT NOT NULL,
@@ -598,6 +612,32 @@ def create_schema(conn: sqlite3.Connection) -> None:
           interpretation_limit_cn TEXT NOT NULL
         );
         """
+    )
+    user_notice_columns = {row[1] for row in conn.execute("PRAGMA table_info(user_notice_entry)")}
+    additions = {
+        "reviewed_by": "TEXT",
+        "reviewed_at": "TEXT",
+        "review_note": "TEXT",
+        "validation_warnings_json": "TEXT NOT NULL DEFAULT '[]'",
+        "record_version": "INTEGER NOT NULL DEFAULT 1",
+    }
+    for column, definition in additions.items():
+        if column not in user_notice_columns:
+            conn.execute(f"ALTER TABLE user_notice_entry ADD COLUMN {column} {definition}")
+    conn.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS ix_user_notice_product_status
+          ON user_notice_entry(product_code,review_status,announcement_date);
+        CREATE INDEX IF NOT EXISTS ix_user_parameter_notice
+          ON user_notice_parameter_record(user_notice_id,parameter_code,start_date);
+        CREATE INDEX IF NOT EXISTS ix_user_audit_entity
+          ON user_input_audit_log(entity_type,entity_id,created_at);
+        """
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO research_assistant_schema_migration VALUES (?,?,?)",
+        ("v023_user_review_workflow", datetime.now().astimezone().isoformat(timespec="seconds"),
+         "增加用户公告审批、校验警告、记录版本及检索索引"),
     )
 
 

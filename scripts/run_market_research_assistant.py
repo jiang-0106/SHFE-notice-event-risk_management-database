@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 import uuid
 import webbrowser
+from contextlib import closing
 from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -98,6 +99,181 @@ def parse_yyyymmdd(value: object, field_name: str, *, required: bool = True) -> 
     return text
 
 
+def ensure_runtime_schema(conn: sqlite3.Connection) -> None:
+    """Apply small, idempotent migrations without rebuilding the large database."""
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_notice_entry'").fetchone():
+        return
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(user_notice_entry)")}
+    additions = {
+        "reviewed_by": "TEXT", "reviewed_at": "TEXT", "review_note": "TEXT",
+        "validation_warnings_json": "TEXT NOT NULL DEFAULT '[]'",
+        "record_version": "INTEGER NOT NULL DEFAULT 1",
+    }
+    migration_applied = (
+        conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='research_assistant_schema_migration'").fetchone()
+        and conn.execute(
+            "SELECT 1 FROM research_assistant_schema_migration WHERE migration_id='v023_user_review_workflow'"
+        ).fetchone()
+    )
+    view_row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='view' AND name='v_all_policy_interval_effective'"
+    ).fetchone()
+    required_indexes = {"ix_user_notice_product_status", "ix_user_parameter_notice", "ix_user_audit_entity"}
+    existing_indexes = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+    if (migration_applied and set(additions) <= columns and view_row and "user_approved" in (view_row[0] or "")
+            and required_indexes <= existing_indexes):
+        return
+    for column, definition in additions.items():
+        if column not in columns:
+            conn.execute(f"ALTER TABLE user_notice_entry ADD COLUMN {column} {definition}")
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS research_assistant_schema_migration (
+          migration_id TEXT PRIMARY KEY,applied_at TEXT NOT NULL,description_cn TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_user_notice_product_status
+          ON user_notice_entry(product_code,review_status,announcement_date);
+        CREATE INDEX IF NOT EXISTS ix_user_parameter_notice
+          ON user_notice_parameter_record(user_notice_id,parameter_code,start_date);
+        CREATE INDEX IF NOT EXISTS ix_user_audit_entity
+          ON user_input_audit_log(entity_type,entity_id,created_at);
+        DROP VIEW IF EXISTS v_all_policy_interval_effective;
+        CREATE VIEW v_all_policy_interval_effective AS
+        SELECT interval_id,product_code,parameter_code,announced_value,start_date,end_date,
+               end_date_inclusive,start_boundary,start_date_basis,end_date_basis,interval_status,
+               source_notice_ids,source_notice_titles,instrument_scopes,source_notice_count,
+               derivation_limit_cn,override_reason,reviewer,updated_at,
+               'verified_database' AS source_layer,'reviewed_or_derived' AS review_status,
+               'ratio' AS value_unit
+        FROM v_policy_interval_effective
+        UNION ALL
+        SELECT p.record_id,n.product_code,p.parameter_code,p.announced_value,p.start_date,p.end_date,
+               p.end_date_inclusive,'user_entered_effective_start','user_entered_from_notice',
+               CASE WHEN p.end_date IS NULL THEN 'open_ended_user_entry' ELSE 'user_entered_from_notice' END,
+               CASE WHEN p.end_date IS NULL THEN 'open' ELSE 'closed' END,
+               n.user_notice_id,n.notice_title_cn,COALESCE(p.instrument_scope,'未填写'),1,
+               CASE WHEN n.review_status='approved' THEN '用户录入且已人工复核。' ELSE '用户录入，尚待与官方原文及结构化数据库复核。' END,
+               p.notes_cn,COALESCE(n.reviewed_by,n.created_by),n.updated_at,
+               CASE WHEN n.review_status='approved' THEN 'user_approved' ELSE 'user_pending' END,
+               n.review_status,p.value_unit
+        FROM user_notice_parameter_record p JOIN user_notice_entry n USING(user_notice_id)
+        WHERE n.review_status IN ('pending_review','approved');
+        """
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO research_assistant_schema_migration VALUES (?,?,?)",
+        ("v023_user_review_workflow", datetime.now().astimezone().isoformat(timespec="seconds"),
+         "增加用户公告审批、校验警告、记录版本及检索索引"),
+    )
+
+
+def backup_user_work(db_path: Path, reason: str) -> str:
+    """Create a small recovery snapshot of mutable tables instead of copying the full 800MB database."""
+    backup_dir = db_path.parent / f"{db_path.stem}_user_backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S%f")
+    safe_reason = "".join(ch for ch in reason if ch.isalnum() or ch in "-_")[:40] or "write"
+    target = backup_dir / f"{stamp}_{safe_reason}.json"
+    temporary = target.with_suffix(".json.building")
+    snapshot = {"database": str(db_path), "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+                "reason": reason, "tables": {}}
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.row_factory = sqlite3.Row
+        for table in ("user_notice_entry", "user_notice_parameter_record", "user_input_audit_log", "policy_interval_manual_override"):
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+                snapshot["tables"][table] = [dict(row) for row in conn.execute(f"SELECT * FROM {table}")]
+    finally:
+        conn.close()
+    temporary.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temporary, target)
+    return str(target)
+
+
+def notice_snapshot(conn: sqlite3.Connection, notice_id: str) -> dict | None:
+    notice = row_dict(conn.execute("SELECT * FROM user_notice_entry WHERE user_notice_id=?", (notice_id,)).fetchone())
+    if notice is None:
+        return None
+    notice["parameters"] = query_dicts(
+        conn, "SELECT * FROM user_notice_parameter_record WHERE user_notice_id=? ORDER BY record_id", (notice_id,)
+    )
+    return notice
+
+
+def normalize_notice_payload(conn: sqlite3.Connection, body: dict, *, exclude_notice_id: str | None = None) -> dict:
+    product = str(body.get("product_code", "")).upper().strip()
+    title_cn = str(body.get("notice_title_cn", "")).strip()
+    title_en = str(body.get("notice_title_en", "")).strip() or None
+    announcement_date = parse_yyyymmdd(body.get("announcement_date"), "announcement_date")
+    source_url = str(body.get("official_source_url", "")).strip() or None
+    description = str(body.get("event_description_cn", "")).strip() or None
+    actor = str(body.get("created_by") or body.get("actor") or "").strip()
+    parameters = body.get("parameters")
+    if not product or not title_cn or not actor:
+        raise ValueError("品种、公告中文标题、公告日期和操作人不能为空")
+    if source_url and urlparse(source_url).scheme not in {"http", "https"}:
+        raise ValueError("官方原文链接必须以http://或https://开头")
+    if not conn.execute("SELECT 1 FROM product_research_snapshot WHERE product_code=?", (product,)).fetchone():
+        raise ValueError(f"未知品种代码：{product}")
+    duplicate = conn.execute(
+        """SELECT user_notice_id FROM user_notice_entry
+           WHERE product_code=? AND announcement_date=? AND notice_title_cn=?
+             AND review_status<>'withdrawn' AND (? IS NULL OR user_notice_id<>?)""",
+        (product, announcement_date, title_cn, exclude_notice_id, exclude_notice_id),
+    ).fetchone()
+    if duplicate:
+        raise ValueError(f"疑似重复公告，已存在记录：{duplicate[0]}")
+    if not isinstance(parameters, list) or not parameters:
+        raise ValueError("至少录入一条参数调整")
+    normalized, warnings = [], []
+    allowed_units = {"ratio", "yuan_per_lot", "lots", "other"}
+    for index, item in enumerate(parameters, 1):
+        if not isinstance(item, dict):
+            raise ValueError(f"第{index}条参数格式错误")
+        code = str(item.get("parameter_code", "")).strip().upper()
+        unit = str(item.get("value_unit", "ratio")).strip() or "ratio"
+        if unit not in allowed_units:
+            raise ValueError(f"第{index}条value_unit不在允许范围内")
+        start = parse_yyyymmdd(item.get("start_date"), f"第{index}条start_date")
+        end = parse_yyyymmdd(item.get("end_date"), f"第{index}条end_date", required=False)
+        if end and end < start:
+            raise ValueError(f"第{index}条结束日不能早于起始日")
+        try:
+            value = float(item.get("announced_value"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"第{index}条announced_value必须为数字") from exc
+        if not code:
+            raise ValueError(f"第{index}条parameter_code不能为空")
+        if unit == "ratio" and not 0 <= value <= 1:
+            raise ValueError(f"第{index}条ratio必须在0到1之间；12%应录入0.12")
+        scope = str(item.get("instrument_scope", "")).strip() or None
+        overlaps = conn.execute(
+            """SELECT n.user_notice_id FROM user_notice_entry n
+               JOIN user_notice_parameter_record p USING(user_notice_id)
+               WHERE n.product_code=? AND p.parameter_code=? AND COALESCE(p.instrument_scope,'')=COALESCE(?, '')
+                 AND n.review_status IN ('pending_review','approved')
+                 AND (? IS NULL OR n.user_notice_id<>?)
+                 AND COALESCE(p.end_date,'99991231')>=? AND COALESCE(?, '99991231')>=p.start_date""",
+            (product, code, scope, exclude_notice_id, exclude_notice_id, start, end),
+        ).fetchall()
+        if overlaps:
+            warnings.append(f"第{index}条与已有用户区间重叠：{','.join(row[0] for row in overlaps)}")
+        normalized.append({
+            "record_id": str(item.get("record_id") or ("UPR-" + uuid.uuid4().hex[:16].upper())),
+            "parameter_code": code, "announced_value": value, "value_unit": unit,
+            "start_date": start, "end_date": end,
+            "end_date_inclusive": 1 if item.get("end_date_inclusive", True) else 0,
+            "instrument_scope": scope,
+            "direction_code": str(item.get("direction_code", "")).strip() or None,
+            "source_excerpt_cn": str(item.get("source_excerpt_cn", "")).strip() or None,
+            "notes_cn": str(item.get("notes_cn", "")).strip() or None,
+        })
+    return {"product_code": product, "notice_title_cn": title_cn, "notice_title_en": title_en,
+            "announcement_date": announcement_date, "official_source_url": source_url,
+            "event_description_cn": description, "actor": actor, "parameters": normalized,
+            "validation_warnings": warnings}
+
+
 def build_trade_research_assessment(snapshot: dict, latest: dict | None) -> dict:
     as_of = snapshot.get("database_last_date")
     current = snapshot.get("freshness_status") == "current_to_latest_complete_official_available"
@@ -145,69 +321,113 @@ def build_trade_research_assessment(snapshot: dict, latest: dict | None) -> dict
 
 
 def create_user_notice(conn: sqlite3.Connection, body: dict) -> dict:
-    product = str(body.get("product_code", "")).upper().strip()
-    title_cn = str(body.get("notice_title_cn", "")).strip()
-    title_en = str(body.get("notice_title_en", "")).strip() or None
-    announcement_date = parse_yyyymmdd(body.get("announcement_date"), "announcement_date")
-    source_url = str(body.get("official_source_url", "")).strip() or None
-    description = str(body.get("event_description_cn", "")).strip() or None
-    actor = str(body.get("created_by", "")).strip()
-    parameters = body.get("parameters")
-    if not product or not title_cn or not actor:
-        raise ValueError("品种、公告中文标题、公告日期和录入人不能为空")
-    if not conn.execute("SELECT 1 FROM product_research_snapshot WHERE product_code=?", (product,)).fetchone():
-        raise ValueError(f"未知品种代码：{product}")
-    if not isinstance(parameters, list) or not parameters:
-        raise ValueError("至少录入一条参数调整")
+    data = normalize_notice_payload(conn, body)
     notice_id = "USER-" + uuid.uuid4().hex[:16].upper()
     now = datetime.now().astimezone().isoformat(timespec="seconds")
-    normalized = []
-    for index, item in enumerate(parameters, 1):
-        if not isinstance(item, dict):
-            raise ValueError(f"第{index}条参数格式错误")
-        code = str(item.get("parameter_code", "")).strip().upper()
-        unit = str(item.get("value_unit", "ratio")).strip() or "ratio"
-        start = parse_yyyymmdd(item.get("start_date"), f"第{index}条start_date")
-        end = parse_yyyymmdd(item.get("end_date"), f"第{index}条end_date", required=False)
-        if end and end < start:
-            raise ValueError(f"第{index}条结束日不能早于起始日")
-        try:
-            value = float(item.get("announced_value"))
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"第{index}条announced_value必须为数字") from exc
-        if not code:
-            raise ValueError(f"第{index}条parameter_code不能为空")
-        normalized.append({
-            "record_id": "UPR-" + uuid.uuid4().hex[:16].upper(), "parameter_code": code,
-            "announced_value": value, "value_unit": unit, "start_date": start, "end_date": end,
-            "end_date_inclusive": 1 if item.get("end_date_inclusive", True) else 0,
-            "instrument_scope": str(item.get("instrument_scope", "")).strip() or None,
-            "direction_code": str(item.get("direction_code", "")).strip() or None,
-            "source_excerpt_cn": str(item.get("source_excerpt_cn", "")).strip() or None,
-            "notes_cn": str(item.get("notes_cn", "")).strip() or None,
-        })
     conn.execute(
-        "INSERT INTO user_notice_entry VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        (notice_id, product, title_cn, title_en, announcement_date, source_url, description, actor,
-         "pending_review", now, now),
+        """INSERT INTO user_notice_entry(
+             user_notice_id,product_code,notice_title_cn,notice_title_en,announcement_date,
+             official_source_url,event_description_cn,created_by,review_status,reviewed_by,
+             reviewed_at,review_note,validation_warnings_json,record_version,created_at,updated_at
+           ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (notice_id, data["product_code"], data["notice_title_cn"], data["notice_title_en"],
+         data["announcement_date"], data["official_source_url"], data["event_description_cn"],
+         data["actor"], "pending_review", None, None, None,
+         json.dumps(data["validation_warnings"], ensure_ascii=False), 1, now, now),
     )
     conn.executemany(
         "INSERT INTO user_notice_parameter_record VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         [(row["record_id"], notice_id, row["parameter_code"], row["announced_value"], row["value_unit"],
           row["start_date"], row["end_date"], row["end_date_inclusive"], row["instrument_scope"],
-          row["direction_code"], row["source_excerpt_cn"], row["notes_cn"]) for row in normalized],
+          row["direction_code"], row["source_excerpt_cn"], row["notes_cn"]) for row in data["parameters"]],
     )
-    audit_payload = {"notice": {"product_code": product, "notice_title_cn": title_cn,
-                     "announcement_date": announcement_date, "official_source_url": source_url},
-                     "parameters": normalized, "review_status": "pending_review"}
+    audit_payload = notice_snapshot(conn, notice_id)
     conn.execute(
         "INSERT INTO user_input_audit_log VALUES (?,?,?,?,?,?,?,?)",
         ("AUD-" + uuid.uuid4().hex[:16].upper(), "user_notice_entry", notice_id, "create", None,
-         json.dumps(audit_payload, ensure_ascii=False, sort_keys=True), actor, now),
+         json.dumps(audit_payload, ensure_ascii=False, sort_keys=True), data["actor"], now),
     )
     return {"ok": True, "user_notice_id": notice_id,
-            "parameter_record_ids": [row["record_id"] for row in normalized],
-            "review_status": "pending_review"}
+            "parameter_record_ids": [row["record_id"] for row in data["parameters"]],
+            "review_status": "pending_review", "validation_warnings": data["validation_warnings"]}
+
+
+def update_user_notice(conn: sqlite3.Connection, body: dict) -> dict:
+    notice_id = str(body.get("user_notice_id", "")).strip()
+    before = notice_snapshot(conn, notice_id)
+    if before is None:
+        raise ValueError("用户公告记录不存在")
+    if before["review_status"] not in {"pending_review", "rejected"}:
+        raise ValueError("只有待复核或已驳回记录可以修改")
+    expected_version = int(body.get("record_version", before["record_version"]))
+    if expected_version != before["record_version"]:
+        raise ValueError("记录已被其他操作更新，请重新加载后再修改")
+    data = normalize_notice_payload(conn, body, exclude_notice_id=notice_id)
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
+    conn.execute(
+        """UPDATE user_notice_entry SET product_code=?,notice_title_cn=?,notice_title_en=?,announcement_date=?,
+                  official_source_url=?,event_description_cn=?,review_status='pending_review',reviewed_by=NULL,
+                  reviewed_at=NULL,review_note=NULL,validation_warnings_json=?,record_version=record_version+1,updated_at=?
+           WHERE user_notice_id=?""",
+        (data["product_code"], data["notice_title_cn"], data["notice_title_en"], data["announcement_date"],
+         data["official_source_url"], data["event_description_cn"],
+         json.dumps(data["validation_warnings"], ensure_ascii=False), now, notice_id),
+    )
+    conn.execute("DELETE FROM user_notice_parameter_record WHERE user_notice_id=?", (notice_id,))
+    conn.executemany(
+        "INSERT INTO user_notice_parameter_record VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        [(row["record_id"], notice_id, row["parameter_code"], row["announced_value"], row["value_unit"],
+          row["start_date"], row["end_date"], row["end_date_inclusive"], row["instrument_scope"],
+          row["direction_code"], row["source_excerpt_cn"], row["notes_cn"]) for row in data["parameters"]],
+    )
+    after = notice_snapshot(conn, notice_id)
+    conn.execute(
+        "INSERT INTO user_input_audit_log VALUES (?,?,?,?,?,?,?,?)",
+        ("AUD-" + uuid.uuid4().hex[:16].upper(), "user_notice_entry", notice_id, "update",
+         json.dumps(before, ensure_ascii=False, sort_keys=True), json.dumps(after, ensure_ascii=False, sort_keys=True),
+         data["actor"], now),
+    )
+    return {"ok": True, "user_notice_id": notice_id, "review_status": "pending_review",
+            "record_version": after["record_version"], "validation_warnings": data["validation_warnings"]}
+
+
+def review_user_notice(conn: sqlite3.Connection, body: dict) -> dict:
+    notice_id = str(body.get("user_notice_id", "")).strip()
+    action = str(body.get("action", "")).strip()
+    reviewer = str(body.get("reviewer", "")).strip()
+    note = str(body.get("review_note", "")).strip()
+    if action not in {"approve", "reject", "withdraw"}:
+        raise ValueError("action必须为approve、reject或withdraw")
+    if not reviewer or not note:
+        raise ValueError("复核人和复核意见不能为空")
+    before = notice_snapshot(conn, notice_id)
+    if before is None:
+        raise ValueError("用户公告记录不存在")
+    expected_version = int(body.get("record_version", before["record_version"]))
+    if expected_version != before["record_version"]:
+        raise ValueError("记录已被其他操作更新，请重新加载后再操作")
+    if action == "approve" and not before.get("official_source_url"):
+        raise ValueError("复核通过前必须补充官方原文链接")
+    if action in {"approve", "reject"} and before["review_status"] not in {"pending_review", "rejected"}:
+        raise ValueError("当前状态不允许执行该复核操作")
+    if action == "withdraw" and before["review_status"] == "withdrawn":
+        raise ValueError("该记录已经撤销")
+    status = {"approve": "approved", "reject": "rejected", "withdraw": "withdrawn"}[action]
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
+    conn.execute(
+        """UPDATE user_notice_entry SET review_status=?,reviewed_by=?,reviewed_at=?,review_note=?,
+                  record_version=record_version+1,updated_at=? WHERE user_notice_id=?""",
+        (status, reviewer, now, note, now, notice_id),
+    )
+    after = notice_snapshot(conn, notice_id)
+    conn.execute(
+        "INSERT INTO user_input_audit_log VALUES (?,?,?,?,?,?,?,?)",
+        ("AUD-" + uuid.uuid4().hex[:16].upper(), "user_notice_entry", notice_id, action,
+         json.dumps(before, ensure_ascii=False, sort_keys=True), json.dumps(after, ensure_ascii=False, sort_keys=True),
+         reviewer, now),
+    )
+    return {"ok": True, "user_notice_id": notice_id, "review_status": status,
+            "record_version": after["record_version"]}
 
 
 def product_payload(conn: sqlite3.Connection, product: str, days: int = 252) -> dict:
@@ -367,6 +587,13 @@ def product_payload(conn: sqlite3.Connection, product: str, days: int = 252) -> 
         overlap_audit = query_dicts(
             conn, "SELECT * FROM policy_event_overlap_audit WHERE product_code=? ORDER BY matched_market_trade_date DESC", (product,)
         )
+    user_notices = []
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_notice_entry'").fetchone():
+        user_notice_ids = [row[0] for row in conn.execute(
+            "SELECT user_notice_id FROM user_notice_entry WHERE product_code=? ORDER BY announcement_date DESC,created_at DESC",
+            (product,),
+        )]
+        user_notices = [notice_snapshot(conn, notice_id) for notice_id in user_notice_ids]
     payload = {
         "product_code": product,
         "snapshot": snapshot,
@@ -381,6 +608,7 @@ def product_payload(conn: sqlite3.Connection, product: str, days: int = 252) -> 
         "unique_policy_events": unique_policy_events,
         "window_statistics": window_statistics,
         "overlap_audit": overlap_audit,
+        "user_notices": user_notices,
     }
     payload["trade_research_assessment"] = build_trade_research_assessment(snapshot, series[-1] if series else None)
     context = build_ai_context(payload)
@@ -493,7 +721,7 @@ class AppHandler(BaseHTTPRequestHandler):
             self.wfile.write(self.web_html)
             return
         try:
-            with self.open_db() as conn:
+            with closing(self.open_db()) as conn:
                 if parsed.path == "/api/products":
                     self.json_response(query_dicts(conn, "SELECT * FROM product_research_snapshot ORDER BY product_code"))
                     return
@@ -502,6 +730,24 @@ class AppHandler(BaseHTTPRequestHandler):
                     product = params.get("code", [""])[0]
                     days = int(params.get("days", ["252"])[0])
                     self.json_response(product_payload(conn, product, days))
+                    return
+                if parsed.path == "/api/user-notices":
+                    params = parse_qs(parsed.query)
+                    product = params.get("product", [""])[0].upper().strip()
+                    status = params.get("status", [""])[0].strip()
+                    clauses, values = [], []
+                    if product:
+                        clauses.append("product_code=?")
+                        values.append(product)
+                    if status:
+                        clauses.append("review_status=?")
+                        values.append(status)
+                    where = " WHERE " + " AND ".join(clauses) if clauses else ""
+                    ids = [row[0] for row in conn.execute(
+                        "SELECT user_notice_id FROM user_notice_entry" + where + " ORDER BY announcement_date DESC,created_at DESC",
+                        tuple(values),
+                    )]
+                    self.json_response([notice_snapshot(conn, notice_id) for notice_id in ids])
                     return
             self.json_response({"error": "not_found"}, 404)
         except (ValueError, sqlite3.Error) as exc:
@@ -513,10 +759,28 @@ class AppHandler(BaseHTTPRequestHandler):
         try:
             body = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
             if parsed.path == "/api/notice-entry":
-                with self.open_db() as conn:
+                backup_path = backup_user_work(self.db_path, "before_create")
+                with closing(self.open_db()) as conn:
                     result = create_user_notice(conn, body)
                     conn.commit()
+                result["backup_path"] = backup_path
                 self.json_response(result, 201)
+                return
+            if parsed.path == "/api/notice-update":
+                backup_path = backup_user_work(self.db_path, "before_update")
+                with closing(self.open_db()) as conn:
+                    result = update_user_notice(conn, body)
+                    conn.commit()
+                result["backup_path"] = backup_path
+                self.json_response(result)
+                return
+            if parsed.path == "/api/notice-review":
+                backup_path = backup_user_work(self.db_path, "before_review")
+                with closing(self.open_db()) as conn:
+                    result = review_user_notice(conn, body)
+                    conn.commit()
+                result["backup_path"] = backup_path
+                self.json_response(result)
                 return
             if parsed.path == "/api/interval-override":
                 interval_id = str(body.get("interval_id", "")).strip()
@@ -530,7 +794,8 @@ class AppHandler(BaseHTTPRequestHandler):
                     raise ValueError("结束日不能早于起始日")
                 if not interval_id or not reason or not reviewer:
                     raise ValueError("interval_id、修改原因和复核人不能为空")
-                with self.open_db() as conn:
+                backup_path = backup_user_work(self.db_path, "before_interval_override")
+                with closing(self.open_db()) as conn:
                     exists = conn.execute("SELECT 1 FROM notice_parameter_policy_interval WHERE interval_id=?", (interval_id,)).fetchone()
                     if not exists:
                         raise ValueError("interval_id不存在")
@@ -551,11 +816,11 @@ class AppHandler(BaseHTTPRequestHandler):
                         (interval_id, start_date, end_date, 1, reason, reviewer, datetime.now().astimezone().isoformat(timespec="seconds")),
                     )
                     conn.commit()
-                self.json_response({"ok": True, "interval_id": interval_id})
+                self.json_response({"ok": True, "interval_id": interval_id, "backup_path": backup_path})
                 return
             if parsed.path == "/api/ai":
                 product = str(body.get("product_code", "")).upper().strip()
-                with self.open_db() as conn:
+                with closing(self.open_db()) as conn:
                     payload = product_payload(conn, product, 252)
                 self.json_response(call_openai(payload["ai_context"]))
                 return
@@ -571,6 +836,12 @@ def main() -> None:
         raise SystemExit(f"Database not found: {db}")
     if not WEB_FILE.is_file():
         raise SystemExit(f"Web UI not found: {WEB_FILE}")
+    migration_connection = sqlite3.connect(db)
+    try:
+        ensure_runtime_schema(migration_connection)
+        migration_connection.commit()
+    finally:
+        migration_connection.close()
     AppHandler.db_path = db
     AppHandler.web_html = WEB_FILE.read_bytes()
     server = ThreadingHTTPServer((args.host, args.port), AppHandler)

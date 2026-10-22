@@ -1,5 +1,15 @@
 ﻿# Changelog
 
+## v0.23 maintenance workflow - 2026-10-21
+
+- Added edit, approve, reject and withdraw transitions for user-entered notices with optimistic record versions.
+- Added ratio/unit, duplicate, URL and overlapping-interval validation.
+- Added small JSON recovery snapshots before every mutable write and an append-only audit trail.
+- Added idempotent runtime schema migrations and query indexes.
+- Added a safe one-command incremental updater with plan-only and resume modes.
+- Incremental parameter integration now appends change clusters for new official dates.
+- Official data checked through 2026-10-21; the three-source complete analysis date is 2026-10-20.
+
 ## v0.22 complete interaction - 2026-10-18
 
 - Added audited multi-parameter notice entry with effective start/end dates and pending-review provenance.

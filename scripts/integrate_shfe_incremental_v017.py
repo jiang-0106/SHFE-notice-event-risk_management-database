@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -118,6 +119,78 @@ def integrate_trade_parameters(connection: sqlite3.Connection, item: dict, produ
             ),
         )
     return len(values)
+
+
+def append_parameter_change_clusters(connection: sqlite3.Connection, trade_dates: set[str]) -> int:
+    """Append descriptive clusters for newly integrated dates without rewriting historical IDs."""
+    if not trade_dates or not connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='official_product_parameter_change_cluster'"
+    ).fetchone():
+        return 0
+    field_map = {
+        "spec_long_margin_ratio": "margin_general", "spec_short_margin_ratio": "margin_general",
+        "hedge_long_margin_ratio": "margin_hedge", "hedge_short_margin_ratio": "margin_hedge",
+        "upper_limit_ratio": "price_limit", "lower_limit_ratio": "price_limit",
+    }
+    inserted = 0
+    for trade_date in sorted(trade_dates):
+        current_rows = connection.execute(
+            "SELECT * FROM official_trade_parameter_daily WHERE trade_date=? ORDER BY product_code,contract_code",
+            (trade_date,),
+        ).fetchall()
+        active_counts = defaultdict(int)
+        for row in current_rows:
+            active_counts[row["product_code"]] += 1
+        groups = defaultdict(lambda: {"fields": set(), "contracts": set(), "field_count": 0,
+                                     "near_expiry": set(), "long_gap": 0})
+        for current in current_rows:
+            previous = connection.execute(
+                """SELECT * FROM official_trade_parameter_daily
+                   WHERE contract_code=? AND trade_date<? ORDER BY trade_date DESC LIMIT 1""",
+                (current["contract_code"], trade_date),
+            ).fetchone()
+            if previous is None:
+                continue
+            gap = (datetime.strptime(trade_date, "%Y%m%d") - datetime.strptime(previous["trade_date"], "%Y%m%d")).days
+            for field, parameter_code in field_map.items():
+                old_value, new_value = previous[field], current[field]
+                if old_value is None or new_value is None or abs(old_value - new_value) <= 1e-12:
+                    continue
+                key = (current["product_code"], parameter_code, old_value, new_value)
+                group = groups[key]
+                group["fields"].add(field)
+                group["contracts"].add(current["contract_code"])
+                group["field_count"] += 1
+                group["long_gap"] += int(gap > 10)
+                match = re.search(r"(\d{4})$", current["contract_code"])
+                if match:
+                    delivery_year, delivery_month = 2000 + int(match.group(1)[:2]), int(match.group(1)[2:])
+                    current_year, current_month = int(trade_date[:4]), int(trade_date[4:6])
+                    month_gap = (delivery_year * 12 + delivery_month) - (current_year * 12 + current_month)
+                    if month_gap <= 1:
+                        group["near_expiry"].add(current["contract_code"])
+        for (product, parameter_code, old_value, new_value), group in sorted(groups.items()):
+            contracts = sorted(group["contracts"])
+            active = active_counts[product]
+            share = len(contracts) / active if active else None
+            scope = (
+                "all_or_nearly_all_active_contracts" if share is not None and share >= 0.8
+                else "majority_of_active_contracts" if share is not None and share >= 0.5
+                else "single_contract" if len(contracts) == 1 else "subset_of_active_contracts"
+            )
+            identity = f"{trade_date}|{product}|{parameter_code}|{old_value:.12g}|{new_value:.12g}"
+            cluster_id = "incremental_cluster_" + hashlib.sha1(identity.encode("utf-8")).hexdigest()[:20]
+            cursor = connection.execute(
+                """INSERT OR IGNORE INTO official_product_parameter_change_cluster VALUES
+                   (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (cluster_id, trade_date, product, parameter_code, old_value, new_value,
+                 ";".join(sorted(group["fields"])), ";".join(contracts), len(contracts),
+                 group["field_count"], active, share, scope, len(group["near_expiry"]),
+                 group["long_gap"],
+                 "Descriptive cluster appended from official daily parameters; it is not automatically classified as a notice-driven or causal event."),
+            )
+            inserted += max(cursor.rowcount, 0)
+    return inserted
 
 
 def rebuild_dominant(connection: sqlite3.Connection) -> int:
@@ -279,6 +352,10 @@ def main() -> None:
                 counts["settlement_rows"] += integrate_settlement(connection, item, products)
             elif item["dataset"] == "trade_parameter":
                 counts["trade_parameter_rows"] += integrate_trade_parameters(connection, item, products)
+        counts["parameter_change_clusters_appended"] = append_parameter_change_clusters(
+            connection,
+            {item["report_date"] for item in valid if item["dataset"] == "trade_parameter" and item["report_date"]},
+        )
         counts["dominant_rows"] = rebuild_dominant(connection)
         counts.update(rebuild_parameter_audits(connection))
         connection.execute("PRAGMA optimize")
