@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## v0.25 visual analysis and optional AI interaction - 2026-10-21
+
+- Added six-component historical-percentile visualization for intense trading days.
+- Added click-through day context with nearby notices, parameter changes and correspondence leads.
+- Added scope-aware parameter before/after comparison.
+- Added AI availability detection, formatted result cards and opt-in automatic calls.
+- Added in-process AI response caching to avoid duplicate calls for identical evidence.
+
 ## v0.24 bidirectional completeness audit - 2026-10-21
 
 - Added product-level notice-corpus completeness for all 25 products.

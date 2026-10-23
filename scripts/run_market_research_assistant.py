@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import io
 import json
 import os
@@ -11,8 +12,9 @@ import urllib.error
 import urllib.request
 import uuid
 import webbrowser
+from threading import Lock
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -24,6 +26,8 @@ DEFAULT_DB = Path(
     r"\SHFE公告参数市场研究助手_v0.16.sqlite3"
 )
 WEB_FILE = Path(__file__).resolve().parents[1] / "web" / "market_research_assistant.html"
+AI_RESPONSE_CACHE: dict[str, dict] = {}
+AI_CACHE_LOCK = Lock()
 
 
 def parse_args() -> argparse.Namespace:
@@ -639,6 +643,50 @@ def product_payload(conn: sqlite3.Connection, product: str, days: int = 252) -> 
     return payload
 
 
+def intense_day_context(conn: sqlite3.Connection, product: str, trade_date: str) -> dict:
+    product = product.upper().strip()
+    trade_date = parse_yyyymmdd(trade_date, "trade_date")
+    if not conn.execute("SELECT 1 FROM dim_product WHERE product_code=?", (product,)).fetchone():
+        raise ValueError(f"未知品种代码：{product}")
+    center = datetime.strptime(trade_date, "%Y%m%d")
+    start = (center - timedelta(days=7)).strftime("%Y%m%d")
+    end = (center + timedelta(days=7)).strftime("%Y%m%d")
+    metrics = row_dict(conn.execute(
+        "SELECT * FROM product_trading_intensity_daily WHERE product_code=? AND trade_date=?", (product, trade_date)
+    ).fetchone())
+    if metrics is None:
+        raise ValueError("该品种在所选日期没有交易强度记录")
+    changes = query_dicts(conn, """SELECT * FROM official_product_parameter_change_cluster
+                                     WHERE product_code=? AND trade_date BETWEEN ? AND ?
+                                     ORDER BY trade_date,parameter_code""", (product, start, end))
+    notices = query_dicts(conn, """SELECT notice_id,notice_title,announcement_date,effective_date,
+                                            parameter_code,interpretation_cn,official_source_url
+                                     FROM verified_notice_parameter_change_alignment
+                                     WHERE product_code=? AND (announcement_date BETWEEN ? AND ? OR effective_date BETWEEN ? AND ?)
+                                     ORDER BY announcement_date""", (product, start, end, start, end))
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='verified_notice_episode_ec_sn'").fetchone():
+        notices.extend(query_dicts(conn, """SELECT notice_id,official_title_cn AS notice_title,
+                                                     REPLACE(announcement_date,'-','') AS announcement_date,
+                                                     REPLACE(policy_reference_date,'-','') AS effective_date,
+                                                     event_type AS parameter_code,event_name_cn AS interpretation_cn,
+                                                     official_source_url
+                                              FROM verified_notice_episode_ec_sn
+                                              WHERE product_code=? AND (REPLACE(announcement_date,'-','') BETWEEN ? AND ?
+                                                OR REPLACE(policy_reference_date,'-','') BETWEEN ? AND ?)
+                                              ORDER BY announcement_date""", (product, start, end, start, end)))
+    audit = []
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='notice_parameter_correspondence_audit'").fetchone():
+        audit = query_dicts(conn, """SELECT audit_direction_cn,reference_date,parameter_code,
+                                              correspondence_status,review_priority,explanation_cn
+                                       FROM notice_parameter_correspondence_audit
+                                       WHERE product_code=? AND reference_date BETWEEN ? AND ?
+                                       ORDER BY reference_date,audit_direction""", (product, start, end))
+    return {"product_code": product, "trade_date": trade_date, "window_start": start, "window_end": end,
+            "metrics": metrics, "nearby_parameter_changes": changes, "nearby_notices": notices,
+            "nearby_correspondence_audit": audit,
+            "interpretation_boundary_cn": "前后7个自然日仅用于同步核验和人工下钻，不表示公告、参数与市场异常之间存在因果关系。"}
+
+
 def extract_response_text(response: dict) -> str:
     texts = []
     for item in response.get("output", []):
@@ -759,6 +807,12 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         try:
             with closing(self.open_db()) as conn:
+                if parsed.path == "/api/config":
+                    self.json_response({"ai_enabled": bool(os.environ.get("OPENAI_API_KEY")),
+                                        "ai_model": os.environ.get("OPENAI_MODEL", "gpt-6-astra"),
+                                        "auto_ai_default": False,
+                                        "research_boundary_cn": "AI只解释数据库证据，不提供买卖指令。"})
+                    return
                 if parsed.path == "/api/products":
                     self.json_response(query_dicts(conn, "SELECT * FROM product_research_snapshot ORDER BY product_code"))
                     return
@@ -767,6 +821,11 @@ class AppHandler(BaseHTTPRequestHandler):
                     product = params.get("code", [""])[0]
                     days = int(params.get("days", ["252"])[0])
                     self.json_response(product_payload(conn, product, days))
+                    return
+                if parsed.path == "/api/day-context":
+                    params = parse_qs(parsed.query)
+                    self.json_response(intense_day_context(conn, params.get("code", [""])[0],
+                                                           params.get("date", [""])[0]))
                     return
                 if parsed.path == "/api/export/correspondence":
                     params = parse_qs(parsed.query)
@@ -870,7 +929,16 @@ class AppHandler(BaseHTTPRequestHandler):
                 product = str(body.get("product_code", "")).upper().strip()
                 with closing(self.open_db()) as conn:
                     payload = product_payload(conn, product, 252)
-                self.json_response(call_openai(payload["ai_context"]))
+                cache_key = hashlib.sha256(json.dumps(payload["ai_context"], ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+                with AI_CACHE_LOCK:
+                    cached = AI_RESPONSE_CACHE.get(cache_key)
+                if cached is not None:
+                    self.json_response({**cached, "cached": True})
+                    return
+                result = call_openai(payload["ai_context"])
+                with AI_CACHE_LOCK:
+                    AI_RESPONSE_CACHE[cache_key] = result
+                self.json_response({**result, "cached": False})
                 return
             self.json_response({"error": "not_found"}, 404)
         except (ValueError, RuntimeError, sqlite3.Error, json.JSONDecodeError) as exc:
