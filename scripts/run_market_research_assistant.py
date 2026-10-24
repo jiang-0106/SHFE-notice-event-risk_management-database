@@ -687,6 +687,86 @@ def intense_day_context(conn: sqlite3.Connection, product: str, trade_date: str)
             "interpretation_boundary_cn": "前后7个自然日仅用于同步核验和人工下钻，不表示公告、参数与市场异常之间存在因果关系。"}
 
 
+def intense_days_page(
+    conn: sqlite3.Connection,
+    product: str,
+    *,
+    level: str = "all",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    min_score: float | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    export_all: bool = False,
+) -> dict:
+    """Query the complete intense/extreme history with auditable server-side filters."""
+    product = product.upper().strip()
+    if not conn.execute("SELECT 1 FROM dim_product WHERE product_code=?", (product,)).fetchone():
+        raise ValueError(f"未知品种代码：{product}")
+    if level not in {"all", "intense", "extreme"}:
+        raise ValueError("level只能为all、intense或extreme")
+    start_date = parse_yyyymmdd(start_date, "start_date", required=False)
+    end_date = parse_yyyymmdd(end_date, "end_date", required=False)
+    if start_date and end_date and end_date < start_date:
+        raise ValueError("结束日期不能早于起始日期")
+    try:
+        min_score = None if min_score in {None, ""} else float(min_score)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("min_score必须为0到100之间的数字") from exc
+    if min_score is not None and not 0 <= min_score <= 100:
+        raise ValueError("min_score必须为0到100之间的数字")
+    page = max(1, int(page))
+    page_size = max(5, min(int(page_size), 200))
+    clauses = ["product_code=?", "intensity_level IN ('intense','extreme')"]
+    values: list[object] = [product]
+    if level != "all":
+        clauses.append("intensity_level=?")
+        values.append(level)
+    if start_date:
+        clauses.append("trade_date>=?")
+        values.append(start_date)
+    if end_date:
+        clauses.append("trade_date<=?")
+        values.append(end_date)
+    if min_score is not None:
+        clauses.append("composite_intensity_score>=?")
+        values.append(min_score)
+    where = " AND ".join(clauses)
+    total = conn.execute(f"SELECT COUNT(*) FROM product_trading_intensity_daily WHERE {where}", tuple(values)).fetchone()[0]
+    sql = f"""
+        SELECT trade_date,dominant_contract_code,close,settlement,log_return,
+               parkinson_range_vol,volume,turnover,open_interest,open_interest_change_ratio,
+               volume_open_interest_ratio,amihud_illiquidity,
+               ROUND(composite_intensity_score,2) AS composite_intensity_score,
+               intensity_level,signal_count_80,
+               ROUND(abs_return_percentile,2) AS abs_return_percentile,
+               ROUND(range_vol_percentile,2) AS range_vol_percentile,
+               ROUND(volume_percentile,2) AS volume_percentile,
+               ROUND(turnover_percentile,2) AS turnover_percentile,
+               ROUND(abs_oi_change_percentile,2) AS abs_oi_change_percentile,
+               ROUND(illiquidity_percentile,2) AS illiquidity_percentile,
+               data_quality_note
+        FROM product_trading_intensity_daily
+        WHERE {where}
+        ORDER BY trade_date DESC
+    """
+    query_values = list(values)
+    if not export_all:
+        sql += " LIMIT ? OFFSET ?"
+        query_values.extend([page_size, (page - 1) * page_size])
+    rows = query_dicts(conn, sql, tuple(query_values))
+    return {
+        "product_code": product,
+        "filters": {"level": level, "start_date": start_date, "end_date": end_date, "min_score": min_score},
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": max(1, (total + page_size - 1) // page_size),
+        "rows": rows,
+        "scope_cn": "完整历史激烈或极端交易日；分位数为同品种历史相对位置，不预测涨跌方向。",
+    }
+
+
 def extract_response_text(response: dict) -> str:
     texts = []
     for item in response.get("output", []):
@@ -826,6 +906,24 @@ class AppHandler(BaseHTTPRequestHandler):
                     params = parse_qs(parsed.query)
                     self.json_response(intense_day_context(conn, params.get("code", [""])[0],
                                                            params.get("date", [""])[0]))
+                    return
+                if parsed.path in {"/api/intense-days", "/api/export/intense-days"}:
+                    params = parse_qs(parsed.query)
+                    result = intense_days_page(
+                        conn,
+                        params.get("code", [""])[0],
+                        level=params.get("level", ["all"])[0],
+                        start_date=params.get("start", [None])[0],
+                        end_date=params.get("end", [None])[0],
+                        min_score=params.get("min_score", [None])[0],
+                        page=int(params.get("page", ["1"])[0]),
+                        page_size=int(params.get("page_size", ["20"])[0]),
+                        export_all=parsed.path == "/api/export/intense-days",
+                    )
+                    if parsed.path == "/api/export/intense-days":
+                        self.csv_response(result["rows"], f"{result['product_code']}_filtered_intense_days.csv")
+                    else:
+                        self.json_response(result)
                     return
                 if parsed.path == "/api/export/correspondence":
                     params = parse_qs(parsed.query)

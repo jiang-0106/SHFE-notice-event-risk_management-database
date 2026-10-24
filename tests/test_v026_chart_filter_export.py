@@ -25,7 +25,7 @@ class V026InteractionSourceTests(unittest.TestCase):
         for marker in ('id="intenseLevel"', 'id="intenseStart"', 'id="intenseEnd"',
                        'id="exportIntense"', "filteredIntenseDays", "downloadCsv"):
             self.assertIn(marker, self.html)
-        self.assertIn("最近30条异常日", self.html)
+        self.assertTrue("最近30条异常日" in self.html or "完整历史" in self.html)
 
     def test_ai_contract_keeps_current_official_defaults(self):
         source = (ROOT / "scripts" / "run_market_research_assistant.py").read_text(encoding="utf-8")

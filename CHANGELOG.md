@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## v0.27 full-history screening and report-ready charts - 2026-10-24
+
+- Replaced the 30-row client-side intense-day filter with a full-history server query.
+- Added level, minimum-score and date filters with 20-row pagination.
+- Added complete filtered-history CSV export instead of current-page-only export.
+- Added parameter instrument-scope filtering to prevent unlike policy scopes from being plotted together.
+- Added product, data cutoff, export date, source and research-boundary metadata to exported PNG charts.
+
 ## v0.26 interactive chart export and intense-day filtering - 2026-10-24
 
 - Added hover explanations to all three quantitative charts.
