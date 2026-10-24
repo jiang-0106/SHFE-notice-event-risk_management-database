@@ -1,5 +1,13 @@
 ﻿# Changelog
 
+## v0.26 interactive chart export and intense-day filtering - 2026-10-24
+
+- Added hover explanations to all three quantitative charts.
+- Added local PNG export for historical intensity, component percentiles and parameter intervals.
+- Added level and date filters for the 30 most recent intense/extreme days.
+- Added filtered intense-day CSV export with UTF-8 BOM for direct Excel use.
+- Revalidated the optional AI request against the official Responses API and current default model guidance.
+
 ## v0.25 visual analysis and optional AI interaction - 2026-10-21
 
 - Added six-component historical-percentile visualization for intense trading days.

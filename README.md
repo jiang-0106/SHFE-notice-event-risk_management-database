@@ -2,6 +2,10 @@
 
 上海期货交易所公告标签与风险参数事件数据库。项目基于上海期货交易所公开公告，构建可按“调整原因、调整参数、时间、品种/合约”组合查询的SQLite数据库，并提供Excel入口、Python查询工具、参数事件候选和人工复核机制。
 
+## Interactive charts and filtered evidence export (v0.26, 2026-10-24)
+
+v0.26 adds chart hover explanations, one-click PNG export, level/date filtering for recent intense trading days, and filtered CSV export. The AI path was checked against the current official Responses API and keeps `gpt-6-astra` as the default model. See [`docs/MARKET_RESEARCH_ASSISTANT_V026.md`](docs/MARKET_RESEARCH_ASSISTANT_V026.md).
+
 ## Visual analysis and optional AI interaction (v0.25, 2026-10-21)
 
 v0.25 adds six-component intensity visualization, click-through intense-day context, scope-aware parameter before/after comparison, AI configuration detection, formatted AI cards, opt-in automatic analysis and in-process response caching. See [`docs/MARKET_RESEARCH_ASSISTANT_V025.md`](docs/MARKET_RESEARCH_ASSISTANT_V025.md).
